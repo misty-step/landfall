@@ -1,0 +1,109 @@
+name: Landfall
+description: Focused release pipeline using semantic-release with optional Moonshot/Kimi synthesis.
+
+inputs:
+  github-token:
+    description: Personal access token with repository write access.
+    required: true
+  moonshot-api-key:
+    description: API key for Moonshot/Kimi synthesis.
+    required: true
+  moonshot-model:
+    description: Moonshot model ID used for synthesis.
+    default: kimi-k2.5
+    required: false
+  node-version:
+    description: Node.js version for semantic-release.
+    default: "22"
+    required: false
+  synthesis:
+    description: Whether to synthesize user-facing release notes.
+    default: "true"
+    required: false
+
+outputs:
+  released:
+    description: Whether semantic-release published a release.
+    value: ${{ steps.semantic_release.outputs.released }}
+  release-tag:
+    description: Release tag created by semantic-release.
+    value: ${{ steps.semantic_release.outputs.release_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        npm install --no-fund --no-audit
+        python -m pip install --upgrade pip
+        python -m pip install requests
+
+    - name: Run semantic-release
+      id: semantic_release
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+        before_tags="$(mktemp)"
+        after_tags="$(mktemp)"
+        git tag | sort > "${before_tags}"
+
+        npx --yes --prefix "${GITHUB_ACTION_PATH}" semantic-release \
+          --extends "${GITHUB_ACTION_PATH}/configs/.releaserc.json"
+
+        git tag | sort > "${after_tags}"
+        new_tag="$(comm -13 "${before_tags}" "${after_tags}" | tail -n1 || true)"
+
+        if [ -n "${new_tag}" ]; then
+          echo "released=true" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=${new_tag}" >> "${GITHUB_OUTPUT}"
+        else
+          echo "released=false" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Synthesize user-facing notes
+      if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        product_name="${GITHUB_REPOSITORY#*/}"
+        python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
+          --api-key "${{ inputs.moonshot-api-key }}" \
+          --model "${{ inputs.moonshot-model }}" \
+          --product-name "${product_name}" \
+          --version "${{ steps.semantic_release.outputs.release_tag }}" \
+          --changelog-file "${GITHUB_WORKSPACE}/CHANGELOG.md" \
+          --prompt-template "${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md" \
+          > "${RUNNER_TEMP}/landfall-whats-new.md"
+
+    - name: Update release body
+      if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        python "${GITHUB_ACTION_PATH}/scripts/update-release.py" \
+          --github-token "${{ inputs.github-token }}" \
+          --repository "${GITHUB_REPOSITORY}" \
+          --tag "${{ steps.semantic_release.outputs.release_tag }}" \
+          --notes-file "${RUNNER_TEMP}/landfall-whats-new.md"
