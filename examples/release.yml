@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    # Keep both names for repositories that still use master.
+    branches:
+      - main
+      - master
+  # Optional manual trigger for one-off release runs.
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # semantic-release and release body updates need write permissions.
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          # semantic-release inspects full git history and tags.
+          fetch-depth: 0
+          # Landfall sets an authenticated remote URL during release.
+          persist-credentials: false
+
+      - name: Run Landfall
+        uses: misty-step/landfall@v1
+        with:
+          # Personal access token with repository write access.
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          # Moonshot API key for synthesized "What's New" notes.
+          moonshot-api-key: ${{ secrets.MOONSHOT_API_KEY }}
+          # Optional model override.
+          moonshot-model: kimi-k2.5
+          # Optional Node.js version for semantic-release.
+          node-version: "22"
+          # Set to "false" to skip synthesis and only publish technical notes.
+          synthesis: "true"
