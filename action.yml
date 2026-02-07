@@ -83,27 +83,41 @@ runs:
         fi
 
     - name: Synthesize user-facing notes
+      id: synthesize
       if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true'
       shell: bash
       run: |
         set -euo pipefail
+        notes_file="${RUNNER_TEMP}/landfall-whats-new.md"
         product_name="${GITHUB_REPOSITORY#*/}"
-        python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
+        if ! python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
           --api-key "${{ inputs.moonshot-api-key }}" \
           --model "${{ inputs.moonshot-model }}" \
           --product-name "${product_name}" \
           --version "${{ steps.semantic_release.outputs.release_tag }}" \
           --changelog-file "${GITHUB_WORKSPACE}/CHANGELOG.md" \
           --prompt-template "${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md" \
-          > "${RUNNER_TEMP}/landfall-whats-new.md"
+          > "${notes_file}"; then
+          echo "::warning::Landfall synthesis failed; publishing release without a What's New section."
+          exit 0
+        fi
+
+        if [ ! -s "${notes_file}" ]; then
+          echo "::warning::Landfall synthesis returned empty notes; skipping release update."
+          exit 0
+        fi
+
+        echo "notes_file=${notes_file}" >> "${GITHUB_OUTPUT}"
 
     - name: Update release body
-      if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true'
+      if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true' && steps.synthesize.outputs.notes_file != ''
       shell: bash
       run: |
         set -euo pipefail
-        python "${GITHUB_ACTION_PATH}/scripts/update-release.py" \
+        if ! python "${GITHUB_ACTION_PATH}/scripts/update-release.py" \
           --github-token "${{ inputs.github-token }}" \
           --repository "${GITHUB_REPOSITORY}" \
           --tag "${{ steps.semantic_release.outputs.release_tag }}" \
-          --notes-file "${RUNNER_TEMP}/landfall-whats-new.md"
+          --notes-file "${{ steps.synthesize.outputs.notes_file }}"; then
+          echo "::warning::Landfall could not update the release body; release remains published."
+        fi

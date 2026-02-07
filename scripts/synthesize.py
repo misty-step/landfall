@@ -4,16 +4,37 @@
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import os
 import re
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 import requests
 
 
 DEFAULT_API_URL = "https://api.moonshot.ai/v1/chat/completions"
 SECTION_HEADING_RE = re.compile(r"^##\s+.+$", re.MULTILINE)
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+REQUIRED_TEMPLATE_TOKENS = (
+    "{{PRODUCT_NAME}}",
+    "{{VERSION}}",
+    "{{TECHNICAL_CHANGELOG}}",
+)
+LOGGER = logging.getLogger("landfall.synthesize")
+
+
+def configure_logging(level_name: str) -> None:
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    logging.basicConfig(level=level, format="%(message)s", stream=sys.stderr)
+
+
+def log_event(level: int, event: str, **fields: Any) -> None:
+    payload = {"event": event, **fields}
+    LOGGER.log(level, json.dumps(payload, sort_keys=True, default=str))
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,11 +76,46 @@ def parse_args() -> argparse.Namespace:
         default=60,
         help="HTTP timeout in seconds.",
     )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Number of retries for retryable HTTP failures (default: 2).",
+    )
+    parser.add_argument(
+        "--retry-backoff",
+        type=float,
+        default=1.0,
+        help="Base backoff seconds between retries (default: 1.0).",
+    )
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        help="Structured log verbosity written to stderr.",
+    )
     return parser.parse_args()
 
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
+
+
+def validate_args(args: argparse.Namespace) -> None:
+    if not args.api_key or not args.api_key.strip():
+        raise ValueError("api-key must be non-empty")
+    if not args.model or not args.model.strip():
+        raise ValueError("model must be non-empty")
+    if args.timeout <= 0:
+        raise ValueError("timeout must be greater than zero")
+    if args.retries < 0:
+        raise ValueError("retries cannot be negative")
+    if args.retry_backoff < 0:
+        raise ValueError("retry-backoff cannot be negative")
+    if not args.api_url.startswith(("http://", "https://")):
+        raise ValueError("api-url must start with http:// or https://")
+    if args.version is not None and not args.version.strip():
+        raise ValueError("version cannot be blank when provided")
 
 
 def normalize_version(version: str) -> str:
@@ -80,10 +136,11 @@ def extract_release_section(changelog_text: str, version: str | None) -> str:
                 target_index = index
                 break
         else:
-            print(
-                f"Warning: version '{version}' not found in changelog headings. "
-                "Using latest section.",
-                file=sys.stderr,
+            log_event(
+                logging.WARNING,
+                "version_not_found",
+                version=version,
+                fallback="latest_section",
             )
 
     start = headings[target_index].start()
@@ -102,6 +159,12 @@ def render_prompt(template_text: str, product_name: str, version: str, technical
     )
 
 
+def validate_template_tokens(template_text: str) -> None:
+    missing = [token for token in REQUIRED_TEMPLATE_TOKENS if token not in template_text]
+    if missing:
+        raise ValueError(f"prompt template missing required token(s): {', '.join(missing)}")
+
+
 def infer_product_name(explicit_name: str | None) -> str:
     if explicit_name:
         return explicit_name
@@ -111,12 +174,67 @@ def infer_product_name(explicit_name: str | None) -> str:
     return "this product"
 
 
+def request_with_retry(
+    session: requests.Session,
+    method: str,
+    url: str,
+    *,
+    timeout: int,
+    retries: int,
+    retry_backoff: float,
+    **kwargs: Any,
+) -> requests.Response:
+    total_attempts = retries + 1
+    for attempt in range(1, total_attempts + 1):
+        try:
+            response = session.request(method=method.upper(), url=url, timeout=timeout, **kwargs)
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if attempt >= total_attempts:
+                raise
+            delay = retry_backoff * (2 ** (attempt - 1))
+            log_event(
+                logging.WARNING,
+                "http_retry_exception",
+                attempt=attempt,
+                max_attempts=total_attempts,
+                method=method.upper(),
+                url=url,
+                wait_seconds=delay,
+                error_type=type(exc).__name__,
+            )
+            time.sleep(delay)
+            continue
+
+        if response.status_code in RETRYABLE_STATUS_CODES and attempt < total_attempts:
+            delay = retry_backoff * (2 ** (attempt - 1))
+            log_event(
+                logging.WARNING,
+                "http_retry_status",
+                attempt=attempt,
+                max_attempts=total_attempts,
+                method=method.upper(),
+                url=url,
+                status_code=response.status_code,
+                wait_seconds=delay,
+            )
+            time.sleep(delay)
+            continue
+
+        response.raise_for_status()
+        return response
+
+    raise RuntimeError("failed to receive HTTP response")
+
+
 def synthesize_notes(
     api_url: str,
     api_key: str,
     model: str,
     prompt: str,
     timeout: int,
+    retries: int,
+    retry_backoff: float,
+    session: requests.Session | None = None,
 ) -> str:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -134,9 +252,24 @@ def synthesize_notes(
         ],
     }
 
-    response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
-    response.raise_for_status()
-    body = response.json()
+    created_session = session is None
+    http = session or requests.Session()
+
+    try:
+        response = request_with_retry(
+            http,
+            "POST",
+            api_url,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+            retries=retries,
+            retry_backoff=retry_backoff,
+        )
+        body = response.json()
+    finally:
+        if created_session:
+            http.close()
 
     try:
         content = body["choices"][0]["message"]["content"]
@@ -151,30 +284,56 @@ def synthesize_notes(
 
 def main() -> int:
     args = parse_args()
+    configure_logging(args.log_level)
+
+    try:
+        validate_args(args)
+    except ValueError as exc:
+        log_event(logging.ERROR, "invalid_input", error=str(exc))
+        return 1
+
     template_path = Path(args.prompt_template)
 
     try:
         template_text = read_text(template_path)
     except OSError as exc:
-        print(f"Error reading prompt template '{template_path}': {exc}", file=sys.stderr)
+        log_event(
+            logging.ERROR,
+            "prompt_template_read_failed",
+            path=str(template_path),
+            error=str(exc),
+        )
+        return 1
+
+    try:
+        validate_template_tokens(template_text)
+    except ValueError as exc:
+        log_event(logging.ERROR, "invalid_prompt_template", error=str(exc))
         return 1
 
     try:
         if args.technical_changelog_file:
-            technical_text = read_text(Path(args.technical_changelog_file))
+            changelog_path = Path(args.technical_changelog_file)
+            technical_text = read_text(changelog_path)
         else:
-            changelog_text = read_text(Path(args.changelog_file))
+            changelog_path = Path(args.changelog_file)
+            changelog_text = read_text(changelog_path)
             technical_text = extract_release_section(changelog_text, args.version)
     except OSError as exc:
-        print(f"Error reading changelog content: {exc}", file=sys.stderr)
+        log_event(
+            logging.ERROR,
+            "changelog_read_failed",
+            path=str(changelog_path),
+            error=str(exc),
+        )
         return 1
 
     if not technical_text:
-        print("Error: technical changelog text is empty", file=sys.stderr)
+        log_event(logging.ERROR, "empty_changelog")
         return 1
 
     product_name = infer_product_name(args.product_name)
-    version = args.version or "latest"
+    version = args.version.strip() if args.version else "latest"
     prompt = render_prompt(template_text, product_name, version, technical_text)
 
     try:
@@ -184,19 +343,27 @@ def main() -> int:
             model=args.model,
             prompt=prompt,
             timeout=args.timeout,
+            retries=args.retries,
+            retry_backoff=args.retry_backoff,
         )
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
         text = exc.response.text if exc.response is not None else str(exc)
-        print(f"Moonshot API HTTP error ({status}): {text}", file=sys.stderr)
+        log_event(
+            logging.ERROR,
+            "moonshot_http_error",
+            status_code=status,
+            response_body=text,
+        )
         return 1
     except requests.RequestException as exc:
-        print(f"Moonshot API request failed: {exc}", file=sys.stderr)
+        log_event(logging.ERROR, "moonshot_request_failed", error=str(exc))
         return 1
     except RuntimeError as exc:
-        print(f"Synthesis error: {exc}", file=sys.stderr)
+        log_event(logging.ERROR, "synthesis_failed", error=str(exc))
         return 1
 
+    log_event(logging.INFO, "synthesis_succeeded")
     print(synthesized)
     return 0
 
