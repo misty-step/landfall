@@ -1,7 +1,13 @@
 name: Release
 
 on:
-  push:
+  workflow_run:
+    # Replace "CI" if your primary pipeline uses a different workflow name.
+    workflows:
+      - CI
+    # Trigger only after the upstream CI workflow completes.
+    types:
+      - completed
     # Keep both names for repositories that still use master.
     branches:
       - main
@@ -9,9 +15,15 @@ on:
   # Optional manual trigger for one-off release runs.
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # semantic-release and release body updates need write permissions.
     permissions:
       contents: write
@@ -27,6 +39,8 @@ jobs:
           # Landfall sets an authenticated remote URL during release.
           persist-credentials: false
 
+      # Landfall: Automated semantic-release pipeline
+      # https://github.com/misty-step/landfall
       - name: Run Landfall
         uses: misty-step/landfall@v1
         with:

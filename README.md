@@ -19,14 +19,25 @@ Create `.github/workflows/release.yml` in your repository:
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
       - master
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       issues: write
@@ -38,6 +49,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Landfall: Automated semantic-release pipeline
+      # https://github.com/misty-step/landfall
       - name: Run Landfall
         uses: misty-step/landfall@v1
         with:
