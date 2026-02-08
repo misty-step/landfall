@@ -6,22 +6,26 @@ inputs:
     description: Personal access token with repository write access.
     required: true
   llm-api-key:
-    description: API key for the LLM provider used for release-note synthesis.
-    required: true
+    description: API key for LLM synthesis (OpenRouter, OpenAI, or any compatible provider).
+    required: false
   llm-model:
-    description: Model ID passed to the LLM provider.
-    default: google/gemini-2.5-flash
+    description: Primary model ID for synthesis (e.g., 'anthropic/claude-sonnet-4', 'openai/gpt-4o-mini').
+    default: anthropic/claude-sonnet-4
+    required: false
+  llm-fallback-models:
+    description: Comma-separated fallback model IDs tried in order if primary fails.
+    default: "google/gemini-2.5-flash,openai/gpt-4o-mini"
     required: false
   llm-api-url:
-    description: Chat-completions endpoint URL. Any OpenAI-compatible provider works.
-    default: https://openrouter.ai/api/v1/chat/completions
+    description: Chat completions endpoint URL (OpenAI-compatible).
+    default: "https://openrouter.ai/api/v1/chat/completions"
     required: false
-  # --- Deprecated aliases (backwards compatibility) ---
   moonshot-api-key:
-    description: "[DEPRECATED — use llm-api-key] API key for Moonshot/Kimi synthesis."
+    description: "[Deprecated] Alias for llm-api-key for legacy workflows."
     required: false
   moonshot-model:
-    description: "[DEPRECATED — use llm-model] Moonshot model ID used for synthesis."
+    description: "[Deprecated] Alias for llm-model for legacy workflows."
+    default: kimi-k2.5
     required: false
   node-version:
     description: Node.js version for semantic-release.
@@ -103,14 +107,16 @@ runs:
         [ -z "${api_key}" ] && api_key="${{ inputs.moonshot-api-key }}"
 
         model="${{ inputs.llm-model }}"
-        if [ "${model}" = "google/gemini-2.5-flash" ] && [ -n "${{ inputs.moonshot-model }}" ]; then
+        if [ "${model}" = "anthropic/claude-sonnet-4" ] && [ -n "${{ inputs.moonshot-model }}" ]; then
           model="${{ inputs.moonshot-model }}"
         fi
 
+        fallback_models="${{ inputs.llm-fallback-models }}"
         api_url="${{ inputs.llm-api-url }}"
 
         echo "api_key=${api_key}" >> "${GITHUB_OUTPUT}"
         echo "model=${model}" >> "${GITHUB_OUTPUT}"
+        echo "fallback_models=${fallback_models}" >> "${GITHUB_OUTPUT}"
         echo "api_url=${api_url}" >> "${GITHUB_OUTPUT}"
 
     - name: Synthesize user-facing notes
@@ -124,6 +130,7 @@ runs:
         if ! python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
           --api-key "${{ steps.llm.outputs.api_key }}" \
           --model "${{ steps.llm.outputs.model }}" \
+          --fallback-models "${{ steps.llm.outputs.fallback_models }}" \
           --api-url "${{ steps.llm.outputs.api_url }}" \
           --product-name "${product_name}" \
           --version "${{ steps.semantic_release.outputs.release_tag }}" \
