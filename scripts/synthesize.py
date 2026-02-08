@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -123,10 +124,11 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("retry-backoff cannot be negative")
     if not args.api_url.startswith(("http://", "https://")):
         raise ValueError("api-url must start with http:// or https://")
+    parsed_url = urlparse(args.api_url)
     if (
-        args.api_url.startswith("http://")
-        and "localhost" not in args.api_url
-        and "127.0.0.1" not in args.api_url
+        parsed_url.scheme == "http"
+        and parsed_url.hostname
+        and parsed_url.hostname not in ("localhost", "127.0.0.1")
     ):
         log_event(logging.WARNING, "insecure_api_url", url=args.api_url)
     if args.version is not None and not args.version.strip():
