@@ -24,8 +24,7 @@ inputs:
     description: "[Deprecated] Alias for llm-api-key for legacy workflows."
     required: false
   moonshot-model:
-    description: "[Deprecated] Alias for llm-model for legacy workflows."
-    default: kimi-k2.5
+    description: "[Deprecated] No longer used. Kept for workflow compatibility."
     required: false
   node-version:
     description: Node.js version for semantic-release.
@@ -97,28 +96,6 @@ runs:
           echo "release_tag=" >> "${GITHUB_OUTPUT}"
         fi
 
-    - name: Resolve LLM inputs
-      id: llm
-      shell: bash
-      run: |
-        set -euo pipefail
-        # New inputs take precedence; fall back to deprecated moonshot-* aliases.
-        api_key="${{ inputs.llm-api-key }}"
-        [ -z "${api_key}" ] && api_key="${{ inputs.moonshot-api-key }}"
-
-        model="${{ inputs.llm-model }}"
-        if [ "${model}" = "anthropic/claude-sonnet-4" ] && [ -n "${{ inputs.moonshot-model }}" ]; then
-          model="${{ inputs.moonshot-model }}"
-        fi
-
-        fallback_models="${{ inputs.llm-fallback-models }}"
-        api_url="${{ inputs.llm-api-url }}"
-
-        echo "api_key=${api_key}" >> "${GITHUB_OUTPUT}"
-        echo "model=${model}" >> "${GITHUB_OUTPUT}"
-        echo "fallback_models=${fallback_models}" >> "${GITHUB_OUTPUT}"
-        echo "api_url=${api_url}" >> "${GITHUB_OUTPUT}"
-
     - name: Synthesize user-facing notes
       id: synthesize
       if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true'
@@ -127,11 +104,12 @@ runs:
         set -euo pipefail
         notes_file="${RUNNER_TEMP}/landfall-whats-new.md"
         product_name="${GITHUB_REPOSITORY#*/}"
+        api_key="${{ inputs.llm-api-key != '' && inputs.llm-api-key || inputs.moonshot-api-key }}"
         if ! python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
-          --api-key "${{ steps.llm.outputs.api_key }}" \
-          --model "${{ steps.llm.outputs.model }}" \
-          --fallback-models "${{ steps.llm.outputs.fallback_models }}" \
-          --api-url "${{ steps.llm.outputs.api_url }}" \
+          --api-key "${api_key}" \
+          --model "${{ inputs.llm-model }}" \
+          --api-url "${{ inputs.llm-api-url }}" \
+          --fallback-models "${{ inputs.llm-fallback-models }}" \
           --product-name "${product_name}" \
           --version "${{ steps.semantic_release.outputs.release_tag }}" \
           --changelog-file "${GITHUB_WORKSPACE}/CHANGELOG.md" \
