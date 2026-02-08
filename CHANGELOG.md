@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/misty-step/landfall/compare/v1.1.0...v1.1.1) (2026-02-08)
+
+
+### Bug Fixes
+
+* remove npm plugin and package.json references for non-Node project support ([#17](https://github.com/misty-step/landfall/issues/17)) ([c5e9dc0](https://github.com/misty-step/landfall/commit/c5e9dc0257622fff7914ac2db49732d764c39296)), closes [misty-step/vox#178](https://github.com/misty-step/vox/issues/178)
+
 # [1.1.0](https://github.com/misty-step/landfall/compare/v1.0.0...v1.1.0) (2026-02-08)
 
 
