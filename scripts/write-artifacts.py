@@ -7,7 +7,6 @@ import argparse
 import datetime
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -63,9 +62,7 @@ def read_notes(path: Path) -> str:
 
 
 def ensure_parent_directory(path: Path) -> None:
-    parent = path.parent
-    if str(parent) and str(parent) != ".":
-        os.makedirs(parent, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def interpolate_output_path(path_template: str, version: str) -> Path:
@@ -96,13 +93,19 @@ def load_json_array(path: Path) -> list[Any]:
     return payload
 
 
-def append_json_entry(notes: str, version: str, output_json_path: str) -> Path:
+def append_json_entry(
+    notes: str,
+    version: str,
+    output_json_path: str,
+    *,
+    today: datetime.date | None = None,
+) -> Path:
     destination = Path(output_json_path)
     entries = load_json_array(destination)
     entries.append(
         {
             "version": normalize_json_version(version),
-            "date": datetime.date.today().isoformat(),
+            "date": (today or datetime.date.today()).isoformat(),
             "notes": notes,
         }
     )

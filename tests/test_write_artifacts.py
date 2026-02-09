@@ -286,19 +286,23 @@ def test_empty_notes_file(write_artifacts, monkeypatch, tmp_path: Path):
     empty_notes_file = tmp_path / "empty.md"
     empty_notes_file.write_text("", encoding="utf-8")
 
-    empty_exit_code = run_main(
+    exit_code = run_main(
         write_artifacts,
         monkeypatch,
         ["--notes-file", str(empty_notes_file), "--version", "v1.2.0"],
     )
-    missing_exit_code = run_main(
+
+    assert exit_code == 1
+
+
+def test_missing_notes_file(write_artifacts, monkeypatch, tmp_path: Path):
+    exit_code = run_main(
         write_artifacts,
         monkeypatch,
         ["--notes-file", str(tmp_path / "missing.md"), "--version", "v1.2.0"],
     )
 
-    assert empty_exit_code == 1
-    assert missing_exit_code == 1
+    assert exit_code == 1
 
 
 def test_validate_args_empty_version(write_artifacts):
