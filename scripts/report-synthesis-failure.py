@@ -79,8 +79,19 @@ def github_headers(token: str) -> dict[str, str]:
     }
 
 
-def compose_issue_title(release_tag: str, failure_stage: str) -> str:
-    return f"[Landfall] Synthesis failed for {release_tag} ({failure_stage})"
+def describe_failure_stage(failure_stage: str) -> str:
+    labels = {
+        "configuration": "Configuration",
+        "synthesis": "Synthesis request",
+        "synthesis_empty": "Synthesis output validation",
+        "release_update": "Release body update",
+        "unknown": "Unknown stage",
+    }
+    return labels.get(failure_stage, "Synthesis pipeline")
+
+
+def compose_issue_title(release_tag: str) -> str:
+    return f"[Landfall] Synthesis failed for {release_tag}"
 
 
 def compose_issue_body(
@@ -95,7 +106,7 @@ def compose_issue_body(
         "Landfall could not complete release-note synthesis for a published release.\n\n"
         f"- Repository: `{repository}`\n"
         f"- Release tag: `{release_tag}`\n"
-        f"- Failure stage: `{failure_stage}`\n"
+        f"- Failure stage: {describe_failure_stage(failure_stage)}\n"
         f"- Workflow: `{workflow_name}`\n"
         f"- Workflow run: {workflow_run_url}\n\n"
         "### Failure details\n"
@@ -137,7 +148,7 @@ def main() -> int:
         log_event(logging.ERROR, "invalid_input", error=str(exc))
         return 1
 
-    title = compose_issue_title(args.release_tag, args.failure_stage)
+    title = compose_issue_title(args.release_tag)
     body = compose_issue_body(
         repository=args.repository,
         release_tag=args.release_tag,

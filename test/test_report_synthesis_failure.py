@@ -30,7 +30,7 @@ def test_compose_issue_body_includes_failure_context(report_synthesis_failure):
 
     assert "octo/example" in body
     assert "v1.2.3" in body
-    assert "synthesis" in body
+    assert "Synthesis request" in body
     assert "request timed out" in body
     assert "actions/runs/123" in body
 
@@ -93,7 +93,7 @@ def test_main_successfully_creates_issue(report_synthesis_failure, monkeypatch):
     )
 
     assert report_synthesis_failure.main() == 0
-    assert captured["title"] == "[Landfall] Synthesis failed for v1.0.0 (release_update)"
+    assert captured["title"] == "[Landfall] Synthesis failed for v1.0.0"
     assert "could not patch release body" in captured["body"]
 
 
