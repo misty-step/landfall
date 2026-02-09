@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/misty-step/landfall/compare/v1.1.5...v1.2.0) (2026-02-09)
+
+
+### Features
+
+* alert and signal synthesis failures ([#25](https://github.com/misty-step/landfall/issues/25)) ([8398ca0](https://github.com/misty-step/landfall/commit/8398ca066c51c45a025adff1e536c0bbdf2d5202))
+
 ## [1.1.5](https://github.com/misty-step/landfall/compare/v1.1.4...v1.1.5) (2026-02-09)
 
 
