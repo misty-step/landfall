@@ -187,6 +187,8 @@ Landfall ships `configs/.releaserc.json` with:
 - `@semantic-release/git`
 - `@semantic-release/github`
 
+`CHANGELOG.md` is fully managed by `@semantic-release/changelog`. Do not keep a manual `# Changelog` or `## [Unreleased]` section in this repository, or release entries will be duplicated/mixed.
+
 ## Example: Technical vs User-Facing
 
 Technical release notes (generated):
