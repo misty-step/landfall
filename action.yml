@@ -40,6 +40,14 @@ inputs:
     description: Whether to create a GitHub issue in the consuming repository when synthesis fails.
     default: "true"
     required: false
+  notes-output-file:
+    description: Write synthesized notes to this file path. Use {version} placeholder for the release tag (e.g., 'docs/releases/{version}.md').
+    default: ""
+    required: false
+  notes-output-json:
+    description: Append a structured release entry to this JSON array file. Creates the file if it does not exist.
+    default: ""
+    required: false
 
 outputs:
   released:
@@ -51,6 +59,9 @@ outputs:
   synthesis-succeeded:
     description: Whether synthesis and release body update completed successfully.
     value: ${{ steps.synthesis_result.outputs.succeeded }}
+  release-notes:
+    description: Synthesized user-facing release notes markdown. Empty if synthesis was skipped or failed.
+    value: ${{ steps.write_artifacts.outputs.notes }}
 
 runs:
   using: composite
@@ -234,6 +245,31 @@ runs:
         fi
 
         set_output "succeeded" "true"
+
+    - name: Write release notes artifacts
+      id: write_artifacts
+      if: inputs.synthesis == 'true' && steps.semantic_release.outputs.released == 'true' && steps.synthesize.outputs.succeeded == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        notes=""
+        if [ -f "${{ steps.synthesize.outputs.notes_file }}" ]; then
+          notes_output="$(python "${GITHUB_ACTION_PATH}/scripts/write-artifacts.py" \
+            --notes-file "${{ steps.synthesize.outputs.notes_file }}" \
+            --version "${{ steps.semantic_release.outputs.release_tag }}" \
+            --output-file "${{ inputs.notes-output-file }}" \
+            --output-json "${{ inputs.notes-output-json }}")" || true
+          if [ -n "${notes_output}" ]; then
+            notes="${notes_output}"
+          fi
+        fi
+
+        {
+          echo "notes<<LANDFALL_NOTES_EOF"
+          echo "${notes}"
+          echo "LANDFALL_NOTES_EOF"
+        } >> "${GITHUB_OUTPUT}"
 
     - name: Summarize synthesis status
       id: synthesis_result
