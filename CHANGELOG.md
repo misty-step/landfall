@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/misty-step/landfall/compare/v1.2.0...v1.3.0) (2026-02-09)
+
+
+### Features
+
+* generate portable release notes artifacts ([#26](https://github.com/misty-step/landfall/issues/26)) ([d4ca901](https://github.com/misty-step/landfall/commit/d4ca90199c4b022407ee8ba2705d2a385100356f)), closes [#7](https://github.com/misty-step/landfall/issues/7)
+
 # [1.2.0](https://github.com/misty-step/landfall/compare/v1.1.5...v1.2.0) (2026-02-09)
 
 
