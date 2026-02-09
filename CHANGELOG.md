@@ -1,3 +1,10 @@
+## [1.1.5](https://github.com/misty-step/landfall/compare/v1.1.4...v1.1.5) (2026-02-09)
+
+
+### Bug Fixes
+
+* remove unused @semantic-release/npm dependency ([#24](https://github.com/misty-step/landfall/issues/24)) ([a353646](https://github.com/misty-step/landfall/commit/a353646e21c3381e440536e1c3ab3435dbeb3959)), closes [#5](https://github.com/misty-step/landfall/issues/5)
+
 ## [1.1.4](https://github.com/misty-step/landfall/compare/v1.1.3...v1.1.4) (2026-02-09)
 
 
