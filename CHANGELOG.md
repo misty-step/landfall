@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/misty-step/landfall/compare/v1.1.3...v1.1.4) (2026-02-09)
+
+
+### Bug Fixes
+
+* harden self-release notes pipeline ([#23](https://github.com/misty-step/landfall/issues/23)) ([0a030b4](https://github.com/misty-step/landfall/commit/0a030b4c21e88daf5b5d68fd75cae2b83ce9938f))
+
 ## [1.1.3](https://github.com/misty-step/landfall/compare/v1.1.2...v1.1.3) (2026-02-08)
 
 
