@@ -78,6 +78,8 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `synthesis-required` | No | `false` | If `true`, fail the action when synthesis/update fails (after failure reporting). |
 | `synthesis-strict` | No | `false` | Deprecated alias for `synthesis-required`. |
 | `synthesis-failure-issue` | No | `true` | If `true`, create a GitHub issue in the consuming repository when synthesis/update fails. |
+| `notes-output-file` | No | `""` | Write synthesized notes to this file path. Use `{version}` placeholder for the release tag (e.g., `docs/releases/{version}.md`). |
+| `notes-output-json` | No | `""` | Append a structured release entry to this JSON array file. Creates the file if it does not exist. |
 
 \* `llm-api-key` is required when `synthesis: true`.
 
@@ -88,6 +90,7 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `released` | `true` if a new release/tag was created, otherwise `false`. |
 | `release-tag` | Tag created by `semantic-release` (empty if no release). |
 | `synthesis-succeeded` | `true` only when synthesis and release-body update both succeed for the released tag. |
+| `release-notes` | Synthesized user-facing release notes markdown. Empty if synthesis was skipped or failed. |
 
 ## Provider Examples
 
@@ -120,6 +123,42 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
     llm-api-key: ${{ secrets.PROVIDER_API_KEY }}
     llm-model: provider/model-id
     llm-api-url: https://provider.example.com/v1/chat/completions
+```
+
+## Portable Release Notes (Private Repos)
+
+For private repos where GitHub Releases aren't publicly visible, use artifact outputs to make notes portable:
+
+```yaml
+- name: Run Landfall
+  id: landfall
+  uses: misty-step/landfall@v1
+  with:
+    github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+    llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+    notes-output-file: docs/releases/{version}.md
+    notes-output-json: releases.json
+```
+
+This writes per-version markdown files and maintains a JSON feed for changelog pages:
+
+```json
+[
+  {
+    "version": "1.2.0",
+    "date": "2026-02-08",
+    "notes": "## New Features\n- ..."
+  }
+]
+```
+
+The `release-notes` output is always available for piping to downstream steps:
+
+```yaml
+- name: Notify Slack
+  if: steps.landfall.outputs.released == 'true'
+  run: |
+    echo "${{ steps.landfall.outputs.release-notes }}" | post-to-slack
 ```
 
 ## Dogfooding Landfall
