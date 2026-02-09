@@ -36,7 +36,7 @@ jobs:
         with:
           perspective: ${{ matrix.perspective }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          kimi-api-key: ${{ secrets.CERBERUS_API_KEY }}
+          api-key: ${{ secrets.CERBERUS_API_KEY }}
           timeout: '600'
 
   verdict:
