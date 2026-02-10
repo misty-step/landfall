@@ -102,6 +102,11 @@ def post_session_factory():
 
 
 @pytest.fixture(scope="session")
+def update_floating_tag():
+    return load_script_module("landfall_update_floating_tag", "scripts/update-floating-tag.py")
+
+
+@pytest.fixture(scope="session")
 def update_release():
     return load_script_module("landfall_update_release", "scripts/update-release.py")
 
