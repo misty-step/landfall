@@ -1,3 +1,10 @@
+## [1.3.4](https://github.com/misty-step/landfall/compare/v1.3.3...v1.3.4) (2026-02-10)
+
+
+### Bug Fixes
+
+* **ci:** correct test directory paths and add ruff config ([#33](https://github.com/misty-step/landfall/issues/33)) ([0f795e0](https://github.com/misty-step/landfall/commit/0f795e0ca758e5581379a364c46d3495172454f3)), closes [#11](https://github.com/misty-step/landfall/issues/11)
+
 ## [1.3.3](https://github.com/misty-step/landfall/compare/v1.3.2...v1.3.3) (2026-02-10)
 
 
