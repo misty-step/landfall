@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/misty-step/landfall/compare/v1.3.1...v1.3.2) (2026-02-10)
+
+
+### Bug Fixes
+
+* fall back to GitHub release body when CHANGELOG.md is missing ([#31](https://github.com/misty-step/landfall/issues/31)) ([1384cf5](https://github.com/misty-step/landfall/commit/1384cf50a3d237ab4651ff2e662d4ca8734e33af)), closes [misty-step/cerberus#82](https://github.com/misty-step/cerberus/issues/82)
+
 ## [1.3.1](https://github.com/misty-step/landfall/compare/v1.3.0...v1.3.1) (2026-02-09)
 
 
