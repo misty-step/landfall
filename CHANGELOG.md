@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/misty-step/landfall/compare/v1.5.0...v1.6.0) (2026-02-10)
+
+
+### Features
+
+* add floating major version tag support for GitHub Actions repos ([#28](https://github.com/misty-step/landfall/issues/28)) ([#40](https://github.com/misty-step/landfall/issues/40)) ([7cbb7a0](https://github.com/misty-step/landfall/commit/7cbb7a0e73f6057553cbde7a312407070e468517))
+
 # [1.5.0](https://github.com/misty-step/landfall/compare/v1.4.0...v1.5.0) (2026-02-10)
 
 
