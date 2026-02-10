@@ -68,7 +68,7 @@ def test_extract_release_section_falls_back_to_latest_when_version_missing(synth
 
 
 def test_synthesize_notes_retries_retryable_status(synthesize, monkeypatch):
-    monkeypatch.setattr(synthesize.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(sys.modules["shared"].time, "sleep", lambda *_: None)
     session = FakeSession(
         [
             FakeResponse(status_code=500, payload={"error": "temporary"}, text="temporary"),
@@ -95,7 +95,7 @@ def test_synthesize_notes_retries_retryable_status(synthesize, monkeypatch):
 
 
 def test_synthesize_notes_timeout_raises_after_retries(synthesize, monkeypatch):
-    monkeypatch.setattr(synthesize.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(sys.modules["shared"].time, "sleep", lambda *_: None)
     session = FakeSession([requests.Timeout("first timeout"), requests.Timeout("second timeout")])
 
     with pytest.raises(requests.Timeout):

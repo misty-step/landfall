@@ -64,7 +64,7 @@ def test_compose_release_body_replaces_existing_whats_new(update_release):
 
 
 def test_fetch_release_retries_on_retryable_status(update_release, monkeypatch):
-    monkeypatch.setattr(update_release.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(sys.modules["shared"].time, "sleep", lambda *_: None)
     session = FakeSession(
         [
             FakeResponse(status_code=502, payload={"message": "bad gateway"}, text="bad gateway"),

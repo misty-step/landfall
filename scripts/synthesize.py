@@ -4,38 +4,26 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import re
-import sys
-import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import requests
 
+from shared import configure_logging, log_event, request_with_retry
+
 
 DEFAULT_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 SECTION_HEADING_RE = re.compile(r"^##\s+.+$", re.MULTILINE)
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 REQUIRED_TEMPLATE_TOKENS = (
     "{{PRODUCT_NAME}}",
     "{{VERSION}}",
     "{{TECHNICAL_CHANGELOG}}",
 )
 LOGGER = logging.getLogger("landfall.synthesize")
-
-
-def configure_logging(level_name: str) -> None:
-    level = getattr(logging, level_name.upper(), logging.INFO)
-    logging.basicConfig(level=level, format="%(message)s", stream=sys.stderr)
-
-
-def log_event(level: int, event: str, **fields: Any) -> None:
-    payload = {"event": event, **fields}
-    LOGGER.log(level, json.dumps(payload, sort_keys=True, default=str))
 
 
 def parse_args() -> argparse.Namespace:
@@ -130,7 +118,7 @@ def validate_args(args: argparse.Namespace) -> None:
         and parsed_url.hostname
         and parsed_url.hostname not in ("localhost", "127.0.0.1")
     ):
-        log_event(logging.WARNING, "insecure_api_url", url=args.api_url)
+        log_event(LOGGER, logging.WARNING, "insecure_api_url", url=args.api_url)
     if args.version is not None and not args.version.strip():
         raise ValueError("version cannot be blank when provided")
 
@@ -154,6 +142,7 @@ def extract_release_section(changelog_text: str, version: str | None) -> str:
                 break
         else:
             log_event(
+                LOGGER,
                 logging.WARNING,
                 "version_not_found",
                 version=version,
@@ -191,58 +180,6 @@ def infer_product_name(explicit_name: str | None) -> str:
     return "this product"
 
 
-def request_with_retry(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    timeout: int,
-    retries: int,
-    retry_backoff: float,
-    **kwargs: Any,
-) -> requests.Response:
-    total_attempts = retries + 1
-    for attempt in range(1, total_attempts + 1):
-        try:
-            response = session.request(method=method.upper(), url=url, timeout=timeout, **kwargs)
-        except (requests.Timeout, requests.ConnectionError) as exc:
-            if attempt >= total_attempts:
-                raise
-            delay = retry_backoff * (2 ** (attempt - 1))
-            log_event(
-                logging.WARNING,
-                "http_retry_exception",
-                attempt=attempt,
-                max_attempts=total_attempts,
-                method=method.upper(),
-                url=url,
-                wait_seconds=delay,
-                error_type=type(exc).__name__,
-            )
-            time.sleep(delay)
-            continue
-
-        if response.status_code in RETRYABLE_STATUS_CODES and attempt < total_attempts:
-            delay = retry_backoff * (2 ** (attempt - 1))
-            log_event(
-                logging.WARNING,
-                "http_retry_status",
-                attempt=attempt,
-                max_attempts=total_attempts,
-                method=method.upper(),
-                url=url,
-                status_code=response.status_code,
-                wait_seconds=delay,
-            )
-            time.sleep(delay)
-            continue
-
-        response.raise_for_status()
-        return response
-
-    raise RuntimeError("failed to receive HTTP response")
-
-
 def synthesize_notes(
     api_url: str,
     api_key: str,
@@ -276,6 +213,7 @@ def synthesize_notes(
 
     try:
         response = request_with_retry(
+            LOGGER,
             http,
             "POST",
             api_url,
@@ -310,7 +248,7 @@ def main() -> int:
     try:
         validate_args(args)
     except ValueError as exc:
-        log_event(logging.ERROR, "invalid_input", error=str(exc))
+        log_event(LOGGER, logging.ERROR, "invalid_input", error=str(exc))
         return 1
 
     template_path = Path(args.prompt_template)
@@ -319,6 +257,7 @@ def main() -> int:
         template_text = read_text(template_path)
     except OSError as exc:
         log_event(
+            LOGGER,
             logging.ERROR,
             "prompt_template_read_failed",
             path=str(template_path),
@@ -329,7 +268,7 @@ def main() -> int:
     try:
         validate_template_tokens(template_text)
     except ValueError as exc:
-        log_event(logging.ERROR, "invalid_prompt_template", error=str(exc))
+        log_event(LOGGER, logging.ERROR, "invalid_prompt_template", error=str(exc))
         return 1
 
     try:
@@ -342,6 +281,7 @@ def main() -> int:
             technical_text = extract_release_section(changelog_text, args.version)
     except OSError as exc:
         log_event(
+            LOGGER,
             logging.ERROR,
             "changelog_read_failed",
             path=str(changelog_path),
@@ -350,7 +290,7 @@ def main() -> int:
         return 1
 
     if not technical_text:
-        log_event(logging.ERROR, "empty_changelog")
+        log_event(LOGGER, logging.ERROR, "empty_changelog")
         return 1
 
     product_name = infer_product_name(args.product_name)
@@ -377,7 +317,7 @@ def main() -> int:
                 retries=args.retries,
                 retry_backoff=args.retry_backoff,
             )
-            log_event(logging.INFO, "synthesis_succeeded", model=model)
+            log_event(LOGGER, logging.INFO, "synthesis_succeeded", model=model)
             print(synthesized)
             return 0
         except (requests.HTTPError, requests.RequestException, RuntimeError) as exc:
@@ -386,10 +326,11 @@ def main() -> int:
             if isinstance(exc, requests.HTTPError) and exc.response is not None:
                 error_fields["status_code"] = exc.response.status_code
                 error_fields["response_body"] = exc.response.text
-            log_event(logging.WARNING, "model_failed", model=model, **error_fields)
+            log_event(LOGGER, logging.WARNING, "model_failed", model=model, **error_fields)
             continue
 
     log_event(
+        LOGGER,
         logging.ERROR,
         "all_models_failed",
         models_tried=models_to_try,
