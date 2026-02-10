@@ -56,6 +56,10 @@ inputs:
     description: Append a structured release entry to this JSON array file. Creates the file if it does not exist.
     default: ""
     required: false
+  floating-tags:
+    description: Update floating major version tags (e.g., v1) after release. Recommended for GitHub Actions repos.
+    default: "false"
+    required: false
 
 outputs:
   released:
@@ -123,6 +127,23 @@ runs:
           echo "released=false" >> "${GITHUB_OUTPUT}"
           echo "release_tag=" >> "${GITHUB_OUTPUT}"
         fi
+
+    - name: Update floating major tag
+      id: update_floating_tag
+      if: inputs.floating-tags == 'true' && steps.semantic_release.outputs.released == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        release_tag="${{ steps.semantic_release.outputs.release_tag }}"
+        major_tag="$(python "${GITHUB_ACTION_PATH}/scripts/update-floating-tag.py" --release-tag "${release_tag}")"
+        sha="$(git rev-list -n 1 "${release_tag}")"
+
+        echo "Updating floating tag ${major_tag} → ${sha}"
+        git tag -f "${major_tag}" "${sha}"
+        git push origin "refs/tags/${major_tag}" --force
 
     - name: Synthesize user-facing notes
       id: synthesize
