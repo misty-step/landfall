@@ -27,11 +27,11 @@ jobs:
 
       - name: Lint Python
         shell: bash
-        run: python -m ruff check scripts test
+        run: python -m ruff check scripts/ tests/
 
       - name: Run tests
         shell: bash
-        run: python -m pytest -q test/
+        run: python -m pytest -q tests/
 
       - name: Validate action metadata
         shell: bash
