@@ -4,15 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import re
-import sys
-import time
 from pathlib import Path
-from typing import Any
 
 import requests
+
+from shared import configure_logging, log_event, request_with_retry
 
 
 WHATS_NEW_RE = re.compile(
@@ -20,18 +18,7 @@ WHATS_NEW_RE = re.compile(
     flags=re.MULTILINE | re.DOTALL,
 )
 REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 LOGGER = logging.getLogger("landfall.update_release")
-
-
-def configure_logging(level_name: str) -> None:
-    level = getattr(logging, level_name.upper(), logging.INFO)
-    logging.basicConfig(level=level, format="%(message)s", stream=sys.stderr)
-
-
-def log_event(level: int, event: str, **fields: Any) -> None:
-    payload = {"event": event, **fields}
-    LOGGER.log(level, json.dumps(payload, sort_keys=True, default=str))
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,58 +87,6 @@ def github_headers(token: str) -> dict[str, str]:
     }
 
 
-def request_with_retry(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    timeout: int,
-    retries: int,
-    retry_backoff: float,
-    **kwargs: Any,
-) -> requests.Response:
-    total_attempts = retries + 1
-    for attempt in range(1, total_attempts + 1):
-        try:
-            response = session.request(method=method.upper(), url=url, timeout=timeout, **kwargs)
-        except (requests.Timeout, requests.ConnectionError) as exc:
-            if attempt >= total_attempts:
-                raise
-            delay = retry_backoff * (2 ** (attempt - 1))
-            log_event(
-                logging.WARNING,
-                "http_retry_exception",
-                attempt=attempt,
-                max_attempts=total_attempts,
-                method=method.upper(),
-                url=url,
-                wait_seconds=delay,
-                error_type=type(exc).__name__,
-            )
-            time.sleep(delay)
-            continue
-
-        if response.status_code in RETRYABLE_STATUS_CODES and attempt < total_attempts:
-            delay = retry_backoff * (2 ** (attempt - 1))
-            log_event(
-                logging.WARNING,
-                "http_retry_status",
-                attempt=attempt,
-                max_attempts=total_attempts,
-                method=method.upper(),
-                url=url,
-                status_code=response.status_code,
-                wait_seconds=delay,
-            )
-            time.sleep(delay)
-            continue
-
-        response.raise_for_status()
-        return response
-
-    raise RuntimeError("failed to receive HTTP response")
-
-
 def fetch_release(
     api_base_url: str,
     repository: str,
@@ -167,6 +102,7 @@ def fetch_release(
     http = session or requests.Session()
     try:
         response = request_with_retry(
+            LOGGER,
             http,
             "GET",
             url,
@@ -197,6 +133,7 @@ def update_release_body(
     http = session or requests.Session()
     try:
         request_with_retry(
+            LOGGER,
             http,
             "PATCH",
             url,
@@ -226,7 +163,7 @@ def main() -> int:
     try:
         validate_args(args)
     except ValueError as exc:
-        log_event(logging.ERROR, "invalid_input", error=str(exc))
+        log_event(LOGGER, logging.ERROR, "invalid_input", error=str(exc))
         return 1
 
     headers = github_headers(args.github_token)
@@ -234,11 +171,11 @@ def main() -> int:
     try:
         synthesized_notes = read_notes(Path(args.notes_file))
     except OSError as exc:
-        log_event(logging.ERROR, "notes_read_failed", path=args.notes_file, error=str(exc))
+        log_event(LOGGER, logging.ERROR, "notes_read_failed", path=args.notes_file, error=str(exc))
         return 1
 
     if not synthesized_notes:
-        log_event(logging.ERROR, "empty_notes_file", path=args.notes_file)
+        log_event(LOGGER, logging.ERROR, "empty_notes_file", path=args.notes_file)
         return 1
 
     try:
@@ -255,6 +192,7 @@ def main() -> int:
         status = exc.response.status_code if exc.response is not None else "unknown"
         text = exc.response.text if exc.response is not None else str(exc)
         log_event(
+            LOGGER,
             logging.ERROR,
             "github_fetch_http_error",
             status_code=status,
@@ -265,6 +203,7 @@ def main() -> int:
         return 1
     except requests.RequestException as exc:
         log_event(
+            LOGGER,
             logging.ERROR,
             "github_fetch_request_failed",
             error=str(exc),
@@ -275,7 +214,7 @@ def main() -> int:
 
     release_id = release.get("id")
     if not isinstance(release_id, int):
-        log_event(logging.ERROR, "missing_release_id", tag=args.tag, repository=args.repository)
+        log_event(LOGGER, logging.ERROR, "missing_release_id", tag=args.tag, repository=args.repository)
         return 1
 
     existing_body = release.get("body") or ""
@@ -296,6 +235,7 @@ def main() -> int:
         status = exc.response.status_code if exc.response is not None else "unknown"
         text = exc.response.text if exc.response is not None else str(exc)
         log_event(
+            LOGGER,
             logging.ERROR,
             "github_update_http_error",
             status_code=status,
@@ -306,6 +246,7 @@ def main() -> int:
         return 1
     except requests.RequestException as exc:
         log_event(
+            LOGGER,
             logging.ERROR,
             "github_update_request_failed",
             error=str(exc),
@@ -314,7 +255,7 @@ def main() -> int:
         )
         return 1
 
-    log_event(logging.INFO, "release_updated", tag=args.tag, repository=args.repository)
+    log_event(LOGGER, logging.INFO, "release_updated", tag=args.tag, repository=args.repository)
     print(f"Updated release '{args.tag}' in '{args.repository}'.")
     return 0
 
