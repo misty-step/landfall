@@ -80,6 +80,63 @@ def test_fetch_all_releases_pagination(monkeypatch):
     assert calls[2].endswith("per_page=100&page=3")
 
 
+def test_fetch_all_releases_raises_on_invalid_json(monkeypatch):
+    class BadResponse:
+        def json(self):
+            raise ValueError("No JSON")
+
+    def fake_request_with_retry(_logger, _session, _method, url: str, **_kwargs):
+        return BadResponse()
+
+    monkeypatch.setattr(backfill, "request_with_retry", fake_request_with_retry)
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        backfill.fetch_all_releases(
+            api_base_url="https://api.github.com",
+            repository="octo/example",
+            headers={},
+            timeout=5,
+            retries=0,
+            retry_backoff=0.0,
+            session=object(),
+        )
+
+
+def test_continue_on_json_decode_error(tmp_path: Path):
+    args = make_args(tmp_path, dry_run=False, rate_limit=0.0)
+    releases = [
+        {
+            "id": 1,
+            "tag_name": "v0.9.0",
+            "body": "## Technical Changes\n- older\n",
+            "published_at": "2020-01-01T00:00:00Z",
+        },
+        {
+            "id": 2,
+            "tag_name": "v1.0.0",
+            "body": "## Technical Changes\n- newer\n",
+            "published_at": "2020-02-01T00:00:00Z",
+        },
+    ]
+
+    def fake_synthesize_notes(*, prompt: str, **_kwargs):
+        if "v0.9.0" in prompt:
+            raise ValueError("No JSON object could be decoded")
+        return "## Improvements\n- ok\n"
+
+    with (
+        patch.object(backfill, "parse_args", return_value=args),
+        patch.object(backfill, "fetch_all_releases", return_value=releases),
+        patch.object(backfill, "synthesize_notes", side_effect=fake_synthesize_notes),
+        patch.object(backfill, "update_release_body") as update_mock,
+    ):
+        exit_code = backfill.main()
+
+    assert exit_code == 1
+    assert update_mock.call_count == 1
+    assert update_mock.call_args.kwargs["release_id"] == 2
+
+
 def test_skip_releases_with_whats_new():
     # Arrange
     releases = [{"id": 1, "body": "## What's New\n\nSome notes\n\n## Technical Changes\n- internal\n"}]

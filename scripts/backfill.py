@@ -160,7 +160,10 @@ def fetch_all_releases(
                 retries=retries,
                 retry_backoff=retry_backoff,
             )
-            payload = response.json()
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise RuntimeError("GitHub releases response was not valid JSON") from exc
             if not payload:
                 break
             if not isinstance(payload, list):
@@ -322,7 +325,7 @@ def main() -> int:
                     )
                     log_event(LOGGER, logging.INFO, "synthesis_succeeded", model=model, tag_name=tag_name)
                     break
-                except (requests.HTTPError, requests.RequestException, RuntimeError) as exc:
+                except (requests.HTTPError, requests.RequestException, RuntimeError, ValueError) as exc:
                     last_error = exc
                     error_fields: dict[str, Any] = {"error": str(exc)}
                     if isinstance(exc, requests.HTTPError) and exc.response is not None:
