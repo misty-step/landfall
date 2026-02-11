@@ -157,10 +157,27 @@ def extract_release_section(changelog_text: str, version: str | None) -> str:
     return changelog_text[start:end].strip()
 
 
+def estimate_bullet_target(version: str, technical: str) -> str:
+    """Suggest a bullet count range based on version bump and changelog size."""
+    normalized = normalize_version(version)
+    parts = normalized.split(".")
+    line_count = len([line for line in technical.splitlines() if line.strip().startswith("-")])
+
+    # Major version or many changes → more bullets
+    if len(parts) >= 1 and parts[0] != "0" and (normalized.endswith(".0.0") or line_count > 10):
+        return "5-10"
+    # Patch-only → fewer bullets
+    if len(parts) >= 3 and parts[1] == "0":
+        return "1-3"
+    return "3-7"
+
+
 def render_prompt(template_text: str, product_name: str, version: str, technical: str) -> str:
+    bullet_target = estimate_bullet_target(version, technical)
     return (
         template_text.replace("{{PRODUCT_NAME}}", product_name)
         .replace("{{VERSION}}", version)
+        .replace("{{BULLET_TARGET}}", bullet_target)
         .replace("{{TECHNICAL_CHANGELOG}}", technical)
     )
 
@@ -202,7 +219,17 @@ def synthesize_notes(
         "messages": [
             {
                 "role": "system",
-                "content": "You rewrite technical release notes into user-facing product notes.",
+                "content": (
+                    "You are a technical writer who transforms developer changelogs into "
+                    "release notes that users actually want to read. "
+                    "Explain what changed and why it matters. "
+                    "For new features, frame as 'You can now...' to highlight capability. "
+                    "For bug fixes, frame as 'Fixed...' to confirm resolution. "
+                    "For improvements, frame as 'The X now...' to show what got better. "
+                    "Never leak implementation details: no PR numbers, commit hashes, "
+                    "file paths, function names, or internal process references. "
+                    "Skip CI, tooling, refactors, and dependency bumps unless user-visible."
+                ),
             },
             {"role": "user", "content": prompt},
         ],
@@ -306,6 +333,7 @@ def main() -> int:
         )
 
     last_error: Exception | None = None
+    status_codes: list[int] = []
     for model in models_to_try:
         try:
             synthesized = synthesize_notes(
@@ -326,16 +354,41 @@ def main() -> int:
             if isinstance(exc, requests.HTTPError) and exc.response is not None:
                 error_fields["status_code"] = exc.response.status_code
                 error_fields["response_body"] = exc.response.text
+                status_codes.append(exc.response.status_code)
             log_event(LOGGER, logging.WARNING, "model_failed", model=model, **error_fields)
             continue
 
-    log_event(
-        LOGGER,
-        logging.ERROR,
-        "all_models_failed",
-        models_tried=models_to_try,
-        last_error=str(last_error) if last_error is not None else "",
-    )
+    # Surface actionable diagnosis for common failure patterns
+    if status_codes and all(code == 401 for code in status_codes):
+        log_event(
+            LOGGER,
+            logging.ERROR,
+            "authentication_failed",
+            models_tried=models_to_try,
+            message=(
+                "API key rejected by provider (HTTP 401). "
+                "Verify your llm-api-key secret is a valid API key for the configured provider."
+            ),
+        )
+    elif status_codes and all(code == 403 for code in status_codes):
+        log_event(
+            LOGGER,
+            logging.ERROR,
+            "authorization_failed",
+            models_tried=models_to_try,
+            message=(
+                "API key lacks required permissions (HTTP 403). "
+                "Check your provider account for rate limits, billing, or model access restrictions."
+            ),
+        )
+    else:
+        log_event(
+            LOGGER,
+            logging.ERROR,
+            "all_models_failed",
+            models_tried=models_to_try,
+            last_error=str(last_error) if last_error is not None else "",
+        )
     return 1
 
 
