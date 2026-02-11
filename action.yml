@@ -56,6 +56,10 @@ inputs:
     description: Append a structured release entry to this JSON array file. Creates the file if it does not exist.
     default: ""
     required: false
+  healthcheck:
+    description: Validate LLM API key with a minimal probe request before synthesis. Catches stale or revoked keys early.
+    default: "false"
+    required: false
   floating-tags:
     description: Update floating major version tags (e.g., v1) after release. Recommended for GitHub Actions repos.
     default: "false"
@@ -96,6 +100,16 @@ runs:
         npm ci --no-fund --no-audit
         python -m pip install --upgrade pip
         python -m pip install requests
+
+    - name: Validate LLM API key
+      if: inputs.healthcheck == 'true' && inputs.llm-api-key != ''
+      shell: bash
+      run: |
+        set -euo pipefail
+        python "${GITHUB_ACTION_PATH}/scripts/healthcheck.py" \
+          --api-key "${{ inputs.llm-api-key }}" \
+          --model "${{ inputs.llm-model }}" \
+          --api-url "${{ inputs.llm-api-url }}"
 
     - name: Run semantic-release
       id: semantic_release
