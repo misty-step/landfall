@@ -25,6 +25,8 @@ def make_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         "github_token": "gh_token",
         "llm_api_key": "llm_key",
         "prompt_template": str(template),
+        "release_tag": None,
+        "all_missing": False,
         "model": "primary-model",
         "fallback_models": "",
         "api_url": "https://api.example.test/chat/completions",
@@ -94,6 +96,63 @@ def test_fetch_all_releases_raises_on_invalid_json(monkeypatch):
         backfill.fetch_all_releases(
             api_base_url="https://api.github.com",
             repository="octo/example",
+            headers={},
+            timeout=5,
+            retries=0,
+            retry_backoff=0.0,
+            session=object(),
+        )
+
+
+def test_fetch_release_by_tag(monkeypatch):
+    # Arrange
+    calls: list[str] = []
+
+    class ResponseStub:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_request_with_retry(_logger, _session, _method, url: str, **_kwargs):
+        calls.append(url)
+        return ResponseStub({"id": 42, "tag_name": "v1.2.3"})
+
+    monkeypatch.setattr(backfill, "request_with_retry", fake_request_with_retry)
+
+    # Act
+    release = backfill.fetch_release_by_tag(
+        api_base_url="https://api.github.com",
+        repository="octo/example",
+        release_tag="v1.2.3",
+        headers={},
+        timeout=5,
+        retries=0,
+        retry_backoff=0.0,
+        session=object(),
+    )
+
+    # Assert
+    assert release["id"] == 42
+    assert calls == ["https://api.github.com/repos/octo/example/releases/tags/v1.2.3"]
+
+
+def test_fetch_release_by_tag_raises_on_invalid_json(monkeypatch):
+    class BadResponse:
+        def json(self):
+            raise ValueError("No JSON")
+
+    def fake_request_with_retry(_logger, _session, _method, _url: str, **_kwargs):
+        return BadResponse()
+
+    monkeypatch.setattr(backfill, "request_with_retry", fake_request_with_retry)
+
+    with pytest.raises(RuntimeError, match="not valid JSON"):
+        backfill.fetch_release_by_tag(
+            api_base_url="https://api.github.com",
+            repository="octo/example",
+            release_tag="v1.2.3",
             headers={},
             timeout=5,
             retries=0,
@@ -190,6 +249,34 @@ def test_dry_run_does_not_update(tmp_path: Path):
     assert exit_code == 0
     assert synth_mock.call_count == 1
     update_mock.assert_not_called()
+
+
+def test_release_tag_mode_processes_single_release(tmp_path: Path):
+    # Arrange
+    args = make_args(tmp_path, release_tag="v1.0.0", dry_run=False, rate_limit=0.0)
+    release = {
+        "id": 321,
+        "tag_name": "v1.0.0",
+        "body": "## Technical Changes\n- internal\n",
+        "published_at": "2020-01-01T00:00:00Z",
+    }
+
+    with (
+        patch.object(backfill, "parse_args", return_value=args),
+        patch.object(backfill, "fetch_release_by_tag", return_value=release) as fetch_by_tag_mock,
+        patch.object(backfill, "fetch_all_releases") as fetch_all_mock,
+        patch.object(backfill, "synthesize_notes", return_value="## Improvements\n- Faster\n") as synth_mock,
+        patch.object(backfill, "update_release_body") as update_mock,
+    ):
+        exit_code = backfill.main()
+
+    # Assert
+    assert exit_code == 0
+    fetch_by_tag_mock.assert_called_once()
+    fetch_all_mock.assert_not_called()
+    assert synth_mock.call_count == 1
+    assert update_mock.call_count == 1
+    assert update_mock.call_args.kwargs["release_id"] == 321
 
 
 def test_continue_on_synthesis_failure(tmp_path: Path):
@@ -324,6 +411,8 @@ def test_validate_args_repo_format():
         github_token="gh",
         llm_api_key="llm",
         prompt_template="prompt.md",
+        release_tag=None,
+        all_missing=False,
         model="model",
         fallback_models="",
         api_url="https://api.example.test/chat/completions",
@@ -340,3 +429,16 @@ def test_validate_args_repo_format():
     with pytest.raises(ValueError, match="repo must match owner/repo"):
         backfill.validate_args(args)
 
+
+def test_validate_args_rejects_blank_release_tag(tmp_path: Path):
+    args = make_args(tmp_path, release_tag=" ")
+
+    with pytest.raises(ValueError, match="release-tag must be non-empty"):
+        backfill.validate_args(args)
+
+
+def test_validate_args_rejects_conflicting_selectors(tmp_path: Path):
+    args = make_args(tmp_path, release_tag="v1.2.3", all_missing=True)
+
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        backfill.validate_args(args)
