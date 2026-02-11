@@ -1,3 +1,16 @@
+# [1.9.0](https://github.com/misty-step/landfall/compare/v1.8.0...v1.9.0) (2026-02-11)
+
+
+### Bug Fixes
+
+* don't create failure issues when API key is unconfigured ([#67](https://github.com/misty-step/landfall/issues/67)) ([30adeb0](https://github.com/misty-step/landfall/commit/30adeb07c79a2d91dabc83460c109cfda08b4de2)), closes [#46](https://github.com/misty-step/landfall/issues/46)
+* surface actionable diagnosis for 401/403 LLM API errors ([#68](https://github.com/misty-step/landfall/issues/68)) ([c893b9c](https://github.com/misty-step/landfall/commit/c893b9c08302ae9588faaea9f012011c58dee7b8)), closes [#47](https://github.com/misty-step/landfall/issues/47)
+
+
+### Features
+
+* support custom synthesis prompt templates ([#66](https://github.com/misty-step/landfall/issues/66)) ([8d022d1](https://github.com/misty-step/landfall/commit/8d022d13c8b3d3ffe9fe598ffc5ba3f94fe380a5)), closes [#15](https://github.com/misty-step/landfall/issues/15)
+
 # [1.8.0](https://github.com/misty-step/landfall/compare/v1.7.0...v1.8.0) (2026-02-11)
 
 
