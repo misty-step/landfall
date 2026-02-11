@@ -48,7 +48,13 @@ jobs:
 
       - name: Verify metadata versions match latest release tag
         shell: bash
-        run: python scripts/check-version-sync.py
+        run: |
+          set -euo pipefail
+          tag_ref="HEAD"
+          if git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+            tag_ref="HEAD^2"
+          fi
+          python scripts/check-version-sync.py --reference "${tag_ref}"
 
       - name: Run tests
         shell: bash

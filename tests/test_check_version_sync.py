@@ -37,7 +37,7 @@ def test_main_passes_when_versions_match_latest_tag(check_version_sync, monkeypa
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("[project]\nversion = \"1.2.3\"\n", encoding="utf-8")
 
-    monkeypatch.setattr(check_version_sync, "load_sorted_tags", lambda _repo_root: ["v1", "v1.2.3"])
+    monkeypatch.setattr(check_version_sync, "load_sorted_tags", lambda _repo_root, _reference: ["v1", "v1.2.3"])
 
     exit_code = check_version_sync.main(["--repo-root", str(tmp_path)])
 
@@ -50,7 +50,7 @@ def test_main_fails_when_version_drift_detected(check_version_sync, monkeypatch,
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("[project]\nversion = \"1.2.2\"\n", encoding="utf-8")
 
-    monkeypatch.setattr(check_version_sync, "load_sorted_tags", lambda _repo_root: ["v1.2.3"])
+    monkeypatch.setattr(check_version_sync, "load_sorted_tags", lambda _repo_root, _reference: ["v1.2.3"])
 
     exit_code = check_version_sync.main(["--repo-root", str(tmp_path)])
 
@@ -58,7 +58,7 @@ def test_main_fails_when_version_drift_detected(check_version_sync, monkeypatch,
 
 
 def test_main_skips_when_no_semver_tags(check_version_sync, monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(check_version_sync, "load_sorted_tags", lambda _repo_root: ["v2", "latest"])
+    monkeypatch.setattr(check_version_sync, "load_sorted_tags", lambda _repo_root, _reference: ["v2", "latest"])
 
     exit_code = check_version_sync.main(["--repo-root", str(tmp_path)])
 
@@ -77,7 +77,7 @@ def test_load_sorted_tags_scopes_to_head_merged_tags(check_version_sync, monkeyp
 
     monkeypatch.setattr(check_version_sync.subprocess, "run", fake_run)
 
-    tags = check_version_sync.load_sorted_tags(tmp_path)
+    tags = check_version_sync.load_sorted_tags(tmp_path, "HEAD^2")
 
     assert tags == ["v1.2.3", "v1.2.2"]
     assert captured["cmd"] == [
@@ -86,7 +86,7 @@ def test_load_sorted_tags_scopes_to_head_merged_tags(check_version_sync, monkeyp
         str(tmp_path),
         "tag",
         "--merged",
-        "HEAD",
+        "HEAD^2",
         "--sort=-version:refname",
     ]
     assert captured["check"] is True
