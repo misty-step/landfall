@@ -306,6 +306,7 @@ def main() -> int:
         )
 
     last_error: Exception | None = None
+    status_codes: list[int] = []
     for model in models_to_try:
         try:
             synthesized = synthesize_notes(
@@ -326,16 +327,41 @@ def main() -> int:
             if isinstance(exc, requests.HTTPError) and exc.response is not None:
                 error_fields["status_code"] = exc.response.status_code
                 error_fields["response_body"] = exc.response.text
+                status_codes.append(exc.response.status_code)
             log_event(LOGGER, logging.WARNING, "model_failed", model=model, **error_fields)
             continue
 
-    log_event(
-        LOGGER,
-        logging.ERROR,
-        "all_models_failed",
-        models_tried=models_to_try,
-        last_error=str(last_error) if last_error is not None else "",
-    )
+    # Surface actionable diagnosis for common failure patterns
+    if status_codes and all(code == 401 for code in status_codes):
+        log_event(
+            LOGGER,
+            logging.ERROR,
+            "authentication_failed",
+            models_tried=models_to_try,
+            message=(
+                "API key rejected by provider (HTTP 401). "
+                "Verify your llm-api-key secret is a valid API key for the configured provider."
+            ),
+        )
+    elif status_codes and all(code == 403 for code in status_codes):
+        log_event(
+            LOGGER,
+            logging.ERROR,
+            "authorization_failed",
+            models_tried=models_to_try,
+            message=(
+                "API key lacks required permissions (HTTP 403). "
+                "Check your provider account for rate limits, billing, or model access restrictions."
+            ),
+        )
+    else:
+        log_event(
+            LOGGER,
+            logging.ERROR,
+            "all_models_failed",
+            models_tried=models_to_try,
+            last_error=str(last_error) if last_error is not None else "",
+        )
     return 1
 
 

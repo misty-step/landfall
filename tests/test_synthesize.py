@@ -382,6 +382,59 @@ def test_synthesize_notes_propagates_http_error(monkeypatch, request_session_fac
         )
 
 
+def test_main_logs_actionable_diagnosis_on_all_401s(monkeypatch, tmp_path):
+    # Arrange
+    template = tmp_path / "template.md"
+    template.write_text(
+        "{{PRODUCT_NAME}} {{VERSION}}\n\n{{TECHNICAL_CHANGELOG}}"
+    )
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## 1.0.0\n\n- something")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "synthesize.py",
+            "--api-key", "bad-key",
+            "--model", "model-a",
+            "--fallback-models", "model-b",
+            "--prompt-template", str(template),
+            "--changelog-file", str(changelog),
+            "--version", "1.0.0",
+            "--retries", "0",
+        ],
+    )
+
+    events: list[dict[str, object]] = []
+    original_log = synthesize.log_event
+
+    def capture_log(logger, level, event, **fields):
+        events.append({"level": level, "event": event, **fields})
+        original_log(logger, level, event, **fields)
+
+    monkeypatch.setattr(synthesize, "log_event", capture_log)
+
+    def fake_request_with_retry(_logger, _session, _method, _url, **_kwargs):
+        resp = synthesize_test_response(
+            status_code=401,
+            json_data={"error": {"message": "No cookie auth credentials found", "code": 401}},
+        )
+        resp.text = '{"error":{"message":"No cookie auth credentials found","code":401}}'
+        resp.raise_for_status()
+
+    monkeypatch.setattr(synthesize, "request_with_retry", fake_request_with_retry)
+
+    # Act
+    exit_code = synthesize.main()
+
+    # Assert
+    assert exit_code == 1
+    auth_events = [e for e in events if e["event"] == "authentication_failed"]
+    assert len(auth_events) == 1
+    assert "API key rejected" in str(auth_events[0]["message"])
+    assert "llm-api-key" in str(auth_events[0]["message"])
+
+
 def synthesize_test_response(*, status_code: int, json_data: object):
     class _Response:
         def __init__(self, status_code: int, json_data: object):
