@@ -56,6 +56,10 @@ inputs:
     description: Append a structured release entry to this JSON array file. Creates the file if it does not exist.
     default: ""
     required: false
+  prompt-template-path:
+    description: Path to a custom synthesis prompt template (relative to repo root). Overrides convention-based detection (.landfall/synthesis-prompt.md).
+    default: ""
+    required: false
   floating-tags:
     description: Update floating major version tags (e.g., v1) after release. Recommended for GitHub Actions repos.
     default: "false"
@@ -198,6 +202,17 @@ runs:
           fi
         fi
 
+        # Resolve prompt template: explicit input > convention > bundled default
+        prompt_template="${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md"
+        custom_template="${{ inputs.prompt-template-path }}"
+        if [ -n "${custom_template}" ]; then
+          prompt_template="${GITHUB_WORKSPACE}/${custom_template}"
+          echo "::notice::Using custom prompt template: ${custom_template}"
+        elif [ -f "${GITHUB_WORKSPACE}/.landfall/synthesis-prompt.md" ]; then
+          prompt_template="${GITHUB_WORKSPACE}/.landfall/synthesis-prompt.md"
+          echo "::notice::Using repo prompt template: .landfall/synthesis-prompt.md"
+        fi
+
         synth_log="${RUNNER_TEMP}/landfall-synthesize.log"
         if ! python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
           --api-key "${api_key}" \
@@ -207,7 +222,7 @@ runs:
           --product-name "${product_name}" \
           --version "${{ steps.semantic_release.outputs.release_tag }}" \
           ${changelog_arg} \
-          --prompt-template "${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md" \
+          --prompt-template "${prompt_template}" \
           > "${notes_file}" \
           2> "${synth_log}"; then
           details="$(tail -n 5 "${synth_log}" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g' | sed -E 's/^ +| +$//g')"
