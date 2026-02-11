@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def test_normalize_tag_version_accepts_semver_tags(check_version_sync):
@@ -62,3 +63,32 @@ def test_main_skips_when_no_semver_tags(check_version_sync, monkeypatch, tmp_pat
     exit_code = check_version_sync.main(["--repo-root", str(tmp_path)])
 
     assert exit_code == 0
+
+
+def test_load_sorted_tags_scopes_to_head_merged_tags(check_version_sync, monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd, *, check, capture_output, text):
+        captured["cmd"] = cmd
+        captured["check"] = check
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        return SimpleNamespace(stdout="v1.2.3\nv1.2.2\n")
+
+    monkeypatch.setattr(check_version_sync.subprocess, "run", fake_run)
+
+    tags = check_version_sync.load_sorted_tags(tmp_path)
+
+    assert tags == ["v1.2.3", "v1.2.2"]
+    assert captured["cmd"] == [
+        "git",
+        "-C",
+        str(tmp_path),
+        "tag",
+        "--merged",
+        "HEAD",
+        "--sort=-version:refname",
+    ]
+    assert captured["check"] is True
+    assert captured["capture_output"] is True
+    assert captured["text"] is True

@@ -40,7 +40,7 @@ def latest_semver_version_from_tags(tags: list[str]) -> str | None:
 
 def load_sorted_tags(repo_root: Path) -> list[str]:
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "tag", "--sort=-version:refname"],
+        ["git", "-C", str(repo_root), "tag", "--merged", "HEAD", "--sort=-version:refname"],
         check=True,
         capture_output=True,
         text=True,
