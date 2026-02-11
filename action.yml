@@ -64,6 +64,10 @@ inputs:
     description: Append a structured release entry to this JSON array file. Creates the file if it does not exist.
     default: ""
     required: false
+  prompt-template-path:
+    description: Path to a custom synthesis prompt template (relative to repo root). Overrides convention-based detection (.landfall/synthesis-prompt.md).
+    default: ""
+    required: false
   healthcheck:
     description: Validate LLM API key with a minimal probe request before synthesis. Catches stale or revoked keys early.
     default: "false"
@@ -215,6 +219,7 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        PROMPT_TEMPLATE_PATH: ${{ inputs.prompt-template-path }}
       run: |
         set -euo pipefail
 
@@ -262,6 +267,21 @@ runs:
           fi
         fi
 
+        # Resolve prompt template: explicit input > convention > bundled default
+        prompt_template="${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md"
+        if [ -n "${PROMPT_TEMPLATE_PATH}" ]; then
+          custom_path="${GITHUB_WORKSPACE}/${PROMPT_TEMPLATE_PATH}"
+          if [ ! -f "${custom_path}" ]; then
+            echo "::error::Custom prompt template not found: ${PROMPT_TEMPLATE_PATH}"
+            exit 1
+          fi
+          prompt_template="${custom_path}"
+          echo "::notice::Using custom prompt template: ${PROMPT_TEMPLATE_PATH}"
+        elif [ -f "${GITHUB_WORKSPACE}/.landfall/synthesis-prompt.md" ]; then
+          prompt_template="${GITHUB_WORKSPACE}/.landfall/synthesis-prompt.md"
+          echo "::notice::Using repo prompt template: .landfall/synthesis-prompt.md"
+        fi
+
         synth_log="${RUNNER_TEMP}/landfall-synthesize.log"
         if ! python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
           --api-key "${api_key}" \
@@ -271,7 +291,7 @@ runs:
           --product-name "${product_name}" \
           --version "${{ steps.resolve_release.outputs.release_tag }}" \
           ${changelog_arg} \
-          --prompt-template "${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md" \
+          --prompt-template "${prompt_template}" \
           > "${notes_file}" \
           2> "${synth_log}"; then
           details="$(tail -n 5 "${synth_log}" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g' | sed -E 's/^ +| +$//g')"
