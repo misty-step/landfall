@@ -132,3 +132,11 @@ def report_synthesis_failure():
         "landfall_report_synthesis_failure",
         "scripts/report-synthesis-failure.py",
     )
+
+
+@pytest.fixture(scope="session")
+def close_resolved_failures():
+    return load_script_module(
+        "landfall_close_resolved_failures",
+        "scripts/close-resolved-failures.py",
+    )

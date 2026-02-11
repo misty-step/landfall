@@ -453,6 +453,20 @@ runs:
         set_output "failure_stage" "${failure_stage}"
         set_output "failure_message" "${failure_message}"
 
+    - name: Close resolved synthesis failure issues
+      if: inputs.synthesis == 'true' && steps.resolve_release.outputs.released == 'true' && inputs.synthesis-failure-issue == 'true' && steps.synthesis_result.outputs.succeeded == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        if ! python "${GITHUB_ACTION_PATH}/scripts/close-resolved-failures.py" \
+          --github-token "${GITHUB_TOKEN}" \
+          --repository "${GITHUB_REPOSITORY}" \
+          --release-tag "${{ steps.resolve_release.outputs.release_tag }}"; then
+          echo "::warning::Landfall could not close resolved failure issues."
+        fi
+
     - name: Report synthesis failure
       if: inputs.synthesis == 'true' && steps.resolve_release.outputs.released == 'true' && inputs.synthesis-failure-issue == 'true' && steps.synthesis_result.outputs.succeeded != 'true' && steps.synthesis_result.outputs.failure_stage != 'configuration'
       shell: bash
