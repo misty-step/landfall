@@ -64,6 +64,35 @@ def test_render_prompt_replaces_template_tokens():
     assert rendered == "Name=Landfall Version=1.2.3\n\n### Fixes\n- stability"
 
 
+def test_render_prompt_replaces_bullet_target():
+    # Arrange
+    template = "Aim for {{BULLET_TARGET}} bullets.\n\n{{PRODUCT_NAME}} {{VERSION}}\n\n{{TECHNICAL_CHANGELOG}}"
+
+    # Act
+    rendered = synthesize.render_prompt(
+        template_text=template,
+        product_name="Test",
+        version="1.2.0",
+        technical="### Features\n- a\n- b\n- c",
+    )
+
+    # Assert
+    assert "3-7" in rendered
+    assert "{{BULLET_TARGET}}" not in rendered
+
+
+def test_estimate_bullet_target_major_release():
+    assert synthesize.estimate_bullet_target("2.0.0", "- a\n- b\n- c") == "5-10"
+
+
+def test_estimate_bullet_target_patch_release():
+    assert synthesize.estimate_bullet_target("1.0.1", "- a") == "1-3"
+
+
+def test_estimate_bullet_target_minor_release():
+    assert synthesize.estimate_bullet_target("1.2.0", "- a\n- b") == "3-7"
+
+
 def test_validate_args_accepts_valid_inputs():
     # Arrange
     args = argparse.Namespace(
@@ -380,6 +409,59 @@ def test_synthesize_notes_propagates_http_error(monkeypatch, request_session_fac
             retry_backoff=0.0,
             session=request_session_factory([]),
         )
+
+
+def test_main_logs_actionable_diagnosis_on_all_401s(monkeypatch, tmp_path):
+    # Arrange
+    template = tmp_path / "template.md"
+    template.write_text(
+        "{{PRODUCT_NAME}} {{VERSION}}\n\n{{TECHNICAL_CHANGELOG}}"
+    )
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## 1.0.0\n\n- something")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "synthesize.py",
+            "--api-key", "bad-key",
+            "--model", "model-a",
+            "--fallback-models", "model-b",
+            "--prompt-template", str(template),
+            "--changelog-file", str(changelog),
+            "--version", "1.0.0",
+            "--retries", "0",
+        ],
+    )
+
+    events: list[dict[str, object]] = []
+    original_log = synthesize.log_event
+
+    def capture_log(logger, level, event, **fields):
+        events.append({"level": level, "event": event, **fields})
+        original_log(logger, level, event, **fields)
+
+    monkeypatch.setattr(synthesize, "log_event", capture_log)
+
+    def fake_request_with_retry(_logger, _session, _method, _url, **_kwargs):
+        resp = synthesize_test_response(
+            status_code=401,
+            json_data={"error": {"message": "No cookie auth credentials found", "code": 401}},
+        )
+        resp.text = '{"error":{"message":"No cookie auth credentials found","code":401}}'
+        resp.raise_for_status()
+
+    monkeypatch.setattr(synthesize, "request_with_retry", fake_request_with_retry)
+
+    # Act
+    exit_code = synthesize.main()
+
+    # Assert
+    assert exit_code == 1
+    auth_events = [e for e in events if e["event"] == "authentication_failed"]
+    assert len(auth_events) == 1
+    assert "API key rejected" in str(auth_events[0]["message"])
+    assert "llm-api-key" in str(auth_events[0]["message"])
 
 
 def synthesize_test_response(*, status_code: int, json_data: object):

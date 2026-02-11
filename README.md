@@ -68,6 +68,8 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 
 | Input | Required | Default | Description |
 | --- | --- | --- | --- |
+| `mode` | No | `full` | Pipeline mode: `full` (semantic-release + synthesis) or `synthesis-only` (synthesize for existing tag). |
+| `release-tag` | No* | `""` | Release tag to synthesize notes for (required when `mode: synthesis-only`). |
 | `github-token` | Yes | - | Personal access token with repo write access. Used by `semantic-release` and GitHub API update calls. |
 | `llm-api-key` | No* | - | API key for synthesis (OpenRouter, OpenAI, or compatible providers). |
 | `llm-model` | No | `anthropic/claude-sonnet-4` | Primary model ID for note synthesis. |
@@ -127,6 +129,21 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
     llm-api-url: https://provider.example.com/v1/chat/completions
 ```
 
+### Synthesis-Only Mode (release-please, changesets, manual tags)
+
+Use `mode: synthesis-only` when another tool handles versioning and you only want Landfall for note synthesis:
+
+```yaml
+- uses: misty-step/landfall@v2
+  with:
+    mode: synthesis-only
+    release-tag: ${{ steps.release.outputs.tag_name }}
+    github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+    llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+```
+
+This skips Node.js setup and semantic-release entirely — only Python is installed for synthesis. Works with any release tool that creates GitHub Releases.
+
 ## Portable Release Notes (Private Repos)
 
 For private repos where GitHub Releases aren't publicly visible, use artifact outputs to make notes portable:
@@ -183,9 +200,13 @@ If Landfall releases itself, use local action code in `.github/workflows/release
 
 Then move `v1` to the new `release-tag` output in the same workflow. This avoids stale major-tag drift.
 
-## Default semantic-release Config
+## Custom semantic-release Config
 
-Landfall ships `configs/.releaserc.json` with:
+Landfall ships a default config at `configs/.releaserc.json`. If your repo has its own semantic-release config file (`.releaserc`, `.releaserc.json`, `.releaserc.yml`, `.releaserc.yaml`, `release.config.js`, `release.config.cjs`, or `release.config.mjs`), Landfall uses it instead of the bundled defaults.
+
+This lets you customize branches, plugins, commit-analyzer rules, or anything else semantic-release supports.
+
+If no config file is found, Landfall falls back to its bundled config with:
 
 - `@semantic-release/commit-analyzer`
 - `@semantic-release/release-notes-generator`
