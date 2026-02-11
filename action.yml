@@ -110,12 +110,24 @@ runs:
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
+        # Detect consumer-provided semantic-release config
+        sr_extends_arg="--extends ${GITHUB_ACTION_PATH}/configs/.releaserc.json"
+        for config_file in .releaserc .releaserc.json .releaserc.yml .releaserc.yaml \
+                           release.config.js release.config.cjs release.config.mjs; do
+          if [ -f "${GITHUB_WORKSPACE}/${config_file}" ]; then
+            echo "::notice::Using repo semantic-release config: ${config_file}"
+            sr_extends_arg=""
+            break
+          fi
+        done
+
         before_tags="$(mktemp)"
         after_tags="$(mktemp)"
         git tag | sort > "${before_tags}"
 
+        # shellcheck disable=SC2086
         npx --yes --prefix "${GITHUB_ACTION_PATH}" semantic-release \
-          --extends "${GITHUB_ACTION_PATH}/configs/.releaserc.json"
+          ${sr_extends_arg}
 
         git tag | sort > "${after_tags}"
         new_tag="$(comm -13 "${before_tags}" "${after_tags}" | tail -n1 || true)"
