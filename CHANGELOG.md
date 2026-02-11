@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/misty-step/landfall/compare/v1.6.0...v1.6.1) (2026-02-11)
+
+
+### Bug Fixes
+
+* make action dependency installs deterministic ([#42](https://github.com/misty-step/landfall/issues/42)) ([31d06ca](https://github.com/misty-step/landfall/commit/31d06ca30e471771e56d11ae3272c185250f8467)), closes [#35](https://github.com/misty-step/landfall/issues/35)
+
 # [1.6.0](https://github.com/misty-step/landfall/compare/v1.5.0...v1.6.0) (2026-02-10)
 
 
