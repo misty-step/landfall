@@ -155,6 +155,7 @@ runs:
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        PROMPT_TEMPLATE_PATH: ${{ inputs.prompt-template-path }}
       run: |
         set -euo pipefail
 
@@ -204,10 +205,14 @@ runs:
 
         # Resolve prompt template: explicit input > convention > bundled default
         prompt_template="${GITHUB_ACTION_PATH}/templates/synthesis-prompt.md"
-        custom_template="${{ inputs.prompt-template-path }}"
-        if [ -n "${custom_template}" ]; then
-          prompt_template="${GITHUB_WORKSPACE}/${custom_template}"
-          echo "::notice::Using custom prompt template: ${custom_template}"
+        if [ -n "${PROMPT_TEMPLATE_PATH}" ]; then
+          custom_path="${GITHUB_WORKSPACE}/${PROMPT_TEMPLATE_PATH}"
+          if [ ! -f "${custom_path}" ]; then
+            echo "::error::Custom prompt template not found: ${PROMPT_TEMPLATE_PATH}"
+            exit 1
+          fi
+          prompt_template="${custom_path}"
+          echo "::notice::Using custom prompt template: ${PROMPT_TEMPLATE_PATH}"
         elif [ -f "${GITHUB_WORKSPACE}/.landfall/synthesis-prompt.md" ]; then
           prompt_template="${GITHUB_WORKSPACE}/.landfall/synthesis-prompt.md"
           echo "::notice::Using repo prompt template: .landfall/synthesis-prompt.md"
