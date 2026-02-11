@@ -84,6 +84,7 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `notes-output-text-file` | No | `""` | Write synthesized notes as plaintext to this file path. Use `{version}` placeholder (e.g., `docs/releases/{version}.txt`). |
 | `notes-output-html-file` | No | `""` | Write synthesized notes as an HTML fragment to this file path. Use `{version}` placeholder (e.g., `docs/releases/{version}.html`). |
 | `notes-output-json` | No | `""` | Append a structured release entry to this JSON array file. Creates the file if it does not exist. |
+| `prompt-template-path` | No | `""` | Path to a custom synthesis prompt template relative to repo root. Overrides convention-based detection. |
 
 \* `llm-api-key` is required when `synthesis: true`.
 
@@ -215,6 +216,24 @@ If no config file is found, Landfall falls back to its bundled config with:
 - `@semantic-release/github`
 
 `CHANGELOG.md` is fully managed by `@semantic-release/changelog`. Do not keep a manual `# Changelog` or `## [Unreleased]` section in this repository, or release entries will be duplicated/mixed.
+
+## Custom Prompt Templates
+
+Landfall resolves the synthesis prompt template in this order:
+
+1. **Explicit input** — `prompt-template-path: my-templates/release.md`
+2. **Convention** — `.landfall/synthesis-prompt.md` in your repo root
+3. **Bundled default** — Landfall's built-in template
+
+Custom templates must include these variables:
+
+| Variable | Value |
+| --- | --- |
+| `{{PRODUCT_NAME}}` | Repository or product name |
+| `{{VERSION}}` | Release version/tag |
+| `{{TECHNICAL_CHANGELOG}}` | Extracted changelog content |
+
+See [`templates/synthesis-prompt.md`](templates/synthesis-prompt.md) as a starting point for your own template.
 
 ## Example: Technical vs User-Facing
 
