@@ -119,7 +119,7 @@ outputs:
     value: ${{ steps.synthesis_result.outputs.quality }}
   webhook-sent:
     description: Whether the webhook notification was sent successfully.
-    value: ${{ steps.notify_webhook.outputs.sent }}
+    value: ${{ steps.notify_webhook.outputs.sent || 'false' }}
 
 runs:
   using: composite

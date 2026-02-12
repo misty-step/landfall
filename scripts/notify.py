@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -263,7 +264,8 @@ def main() -> int:
         log_event(LOGGER, logging.ERROR, "webhook_request_failed", error=str(exc))
         return 1
 
-    log_event(LOGGER, logging.INFO, "webhook_sent", url=args.webhook_url, version=args.version)
+    redacted_url = urlparse(args.webhook_url).hostname or "unknown"
+    log_event(LOGGER, logging.INFO, "webhook_sent", host=redacted_url, version=args.version)
     return 0
 
 
