@@ -1,0 +1,56 @@
+name: Synthesize Notes for Manual Tags
+
+on:
+  # Trigger when you publish a GitHub Release manually.
+  release:
+    types:
+      - published
+  # Optional backfill path for existing tags.
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to synthesize notes for (for example: v1.2.3)."
+        required: true
+        type: string
+
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Landfall release updates
+      contents: write
+      # Landfall synthesis failure issue reporting (default: true)
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+          else
+            tag="${{ inputs.release_tag }}"
+          fi
+
+          if [ -z "${tag}" ]; then
+            echo "::error::No release tag provided."
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run Landfall in synthesis-only mode
+        uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ steps.release_tag.outputs.tag }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}

@@ -130,12 +130,12 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
     llm-api-url: https://provider.example.com/v1/chat/completions
 ```
 
-### Synthesis-Only Mode (release-please, changesets, manual tags)
+## Integration with Other Tools
 
-Use `mode: synthesis-only` when another tool handles versioning and you only want Landfall for note synthesis:
+Use `mode: synthesis-only` when another tool handles versioning and publishing, and you want Landfall only for note synthesis and release-body updates.
 
 ```yaml
-- uses: misty-step/landfall@v2
+- uses: misty-step/landfall@v1
   with:
     mode: synthesis-only
     release-tag: ${{ steps.release.outputs.tag_name }}
@@ -143,7 +143,20 @@ Use `mode: synthesis-only` when another tool handles versioning and you only wan
     llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
 ```
 
-This skips Node.js setup and semantic-release entirely — only Python is installed for synthesis. Works with any release tool that creates GitHub Releases.
+Landfall skips Node.js setup and semantic-release in this mode, and installs only Python for synthesis/update steps.
+
+Setup checklist:
+
+1. Ensure your upstream release tool creates a GitHub Release for the tag.
+2. Pass that tag into `release-tag` (for example, `${{ steps.release.outputs.tag_name }}`).
+3. Use a token with repository write permissions for `github-token` (for example, `GH_RELEASE_TOKEN`).
+4. Grant `contents: write` permissions, plus `issues: write` if `synthesis-failure-issue` is left at its default (`true`).
+
+Ready-to-use workflow examples:
+
+- [release-please integration](examples/release-please.yml)
+- [Changesets integration](examples/changesets.yml)
+- [manual tags and releases integration](examples/manual-tag.yml)
 
 ## Portable Release Notes (Private Repos)
 

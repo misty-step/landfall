@@ -1,0 +1,46 @@
+name: Release with release-please + Landfall
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # release-please + Landfall release updates
+      contents: write
+      # release-please release PRs
+      pull-requests: write
+      # Landfall synthesis failure issue reporting (default: true)
+      issues: write
+
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          # Personal access token with repository write access.
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          # Optional: custom release-please config.
+          # config-file: release-please-config.json
+          # manifest-file: .release-please-manifest.json
+
+      - name: Run Landfall in synthesis-only mode
+        if: steps.release.outputs.release_created == 'true'
+        uses: misty-step/landfall@v1
+        with:
+          # Skip semantic-release and only synthesize/update notes for this tag.
+          mode: synthesis-only
+          # release-please output in single-package mode.
+          release-tag: ${{ steps.release.outputs.tag_name }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+

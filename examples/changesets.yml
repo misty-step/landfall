@@ -1,0 +1,73 @@
+name: Release with Changesets + Landfall
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # changesets release publishing + Landfall release updates
+      contents: write
+      # changesets release PRs
+      pull-requests: write
+      # Landfall synthesis failure issue reporting (default: true)
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --no-fund --no-audit
+
+      - name: Publish with Changesets
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+          # Required for Landfall synthesis-only release body updates.
+          createGithubReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          # Optional: needed only if your publish command pushes to npm.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Resolve newest tag from publish step
+        if: steps.changesets.outputs.published == 'true'
+        id: resolve_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(git for-each-ref --sort=-creatordate --format='%(refname:short)' refs/tags | head -n1)"
+          if [ -z "${tag}" ]; then
+            echo "::error::Could not resolve a release tag after changesets publish."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run Landfall in synthesis-only mode
+        if: steps.changesets.outputs.published == 'true'
+        uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ steps.resolve_tag.outputs.tag }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+
