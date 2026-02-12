@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/misty-step/landfall/compare/v1.16.1...v1.17.0) (2026-02-12)
+
+
+### Features
+
+* generic webhook notification on release ([#87](https://github.com/misty-step/landfall/issues/87)) ([b32a2db](https://github.com/misty-step/landfall/commit/b32a2db1e0650d9266b302f661802c354034d290)), closes [#59](https://github.com/misty-step/landfall/issues/59)
+
 ## [1.16.1](https://github.com/misty-step/landfall/compare/v1.16.0...v1.16.1) (2026-02-12)
 
 
