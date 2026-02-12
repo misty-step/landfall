@@ -32,11 +32,13 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
-      - uses: misty-step/cerberus@v2.0.0
+      - uses: misty-step/cerberus@v2.9.0
         with:
           perspective: ${{ matrix.perspective }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: openrouter/google/gemini-2.5-flash
+          max-steps: '12'
           timeout: '600'
 
   verdict:
@@ -45,6 +47,6 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: misty-step/cerberus/verdict@v2.0.0
+      - uses: misty-step/cerberus/verdict@v2.9.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
