@@ -93,6 +93,13 @@ def markdown_to_plaintext(markdown: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text) if text else ""
 
 
+def _safe_link_href(url: str) -> str | None:
+    parsed = urlparse(url.strip())
+    if parsed.scheme in ("http", "https"):
+        return url.strip()
+    return None
+
+
 def _md_inline_to_html(text: str) -> str:
     out: list[str] = []
     i = 0
@@ -116,7 +123,11 @@ def _md_inline_to_html(text: str) -> str:
                 if end != -1:
                     label = text[i + 1:mid]
                     url = text[mid + 2:end]
-                    out.append(f'<a href="{html.escape(url, quote=True)}">{html.escape(label, quote=True)}</a>')
+                    href = _safe_link_href(url)
+                    if href:
+                        out.append(f'<a href="{html.escape(href, quote=True)}">{html.escape(label, quote=True)}</a>')
+                    else:
+                        out.append(html.escape(label, quote=True))
                     i = end + 1
                     continue
         out.append(html.escape(text[i], quote=True))

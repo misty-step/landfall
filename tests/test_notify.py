@@ -163,6 +163,18 @@ def test_build_payload_plaintext_strips_markdown(notify):
     assert "Bold feature" in payload["notes_plaintext"]
 
 
+def test_build_payload_html_rejects_javascript_urls(notify):
+    notes_md = "- [click](javascript:alert(1))"
+    payload = notify.build_payload(
+        version="v1.0.0",
+        repository="a/b",
+        release_url="https://github.com/a/b/releases/tag/v1.0.0",
+        notes_markdown=notes_md,
+    )
+    assert "javascript:" not in payload["notes_html"]
+    assert "click" in payload["notes_html"]
+
+
 def test_build_payload_timestamp_is_iso8601(notify):
     payload = notify.build_payload(
         version="v1.0.0",
