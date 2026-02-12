@@ -37,6 +37,8 @@ jobs:
           perspective: ${{ matrix.perspective }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: openrouter/google/gemini-2.5-flash
+          max-steps: '12'
           timeout: '600'
 
   verdict:
