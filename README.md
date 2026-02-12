@@ -147,6 +147,18 @@ Use `mode: synthesis-only` when another tool handles versioning and you only wan
 
 This skips Node.js setup and semantic-release entirely — only Python is installed for synthesis. Works with any release tool that creates GitHub Releases.
 
+### Integration with Other Tools
+
+Ready-to-use workflow examples for common release tools. Each uses `mode: synthesis-only` so Landfall only adds the synthesis layer.
+
+| Tool | Example | Trigger |
+| --- | --- | --- |
+| [release-please](https://github.com/googleapis/release-please-action) | [`examples/release-please.yml`](examples/release-please.yml) | Push to main (release-please creates the release) |
+| [Changesets](https://github.com/changesets/changesets) | [`examples/changesets.yml`](examples/changesets.yml) | Push to main (changesets publishes packages) |
+| Manual tags | [`examples/manual-tag.yml`](examples/manual-tag.yml) | Tag push matching `v*` |
+
+Copy the relevant example to `.github/workflows/` in your repository and update the secrets.
+
 ### Backfill Existing Releases
 
 Use `scripts/backfill.py` to repair already-published releases that are missing `## What's New`.
