@@ -1,0 +1,77 @@
+name: Release (changesets + Landfall)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: changesets-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      # changesets/action updates release PRs and creates releases/tags.
+      contents: write
+      pull-requests: write
+      # Landfall can open/close synthesis failure issues.
+      issues: write
+
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use a PAT if your repo requires permissions beyond GITHUB_TOKEN.
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      # changesets/action either updates the release PR or publishes now.
+      - name: Create release PR or publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # Replace with your publish command.
+          publish: npm run release
+          # Keep release creation enabled so Landfall has a release to update.
+          createGithubReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          # Required only if your publish command pushes to npm.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Landfall needs an explicit tag. Grab the newest published release tag.
+      - name: Resolve published release tag
+        if: steps.changesets.outputs.published == 'true'
+        id: release_tag
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 1 --json tagName --jq '.[0].tagName')"
+          if [ -z "${tag}" ] || [ "${tag}" = "null" ]; then
+            echo "::error::No GitHub Release tag found after changesets publish."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Synthesize user-facing notes with Landfall
+        if: steps.changesets.outputs.published == 'true'
+        uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ steps.release_tag.outputs.tag }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}

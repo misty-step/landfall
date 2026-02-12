@@ -135,7 +135,7 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 Use `mode: synthesis-only` when another tool handles versioning and you only want Landfall for note synthesis:
 
 ```yaml
-- uses: misty-step/landfall@v2
+- uses: misty-step/landfall@v1
   with:
     mode: synthesis-only
     release-tag: ${{ steps.release.outputs.tag_name }}
@@ -144,6 +144,18 @@ Use `mode: synthesis-only` when another tool handles versioning and you only wan
 ```
 
 This skips Node.js setup and semantic-release entirely — only Python is installed for synthesis. Works with any release tool that creates GitHub Releases.
+
+## Integration with Other Tools
+
+When another release tool handles versioning and publication, run Landfall in `mode: synthesis-only` to add user-facing `## What's New` notes on top of the existing GitHub Release.
+
+Ready-to-copy workflows are available in `examples/`:
+
+- [`examples/release-please.yml`](examples/release-please.yml): `release-please` creates releases, then Landfall synthesizes notes for the new tag.
+- [`examples/changesets.yml`](examples/changesets.yml): `changesets/action` publishes releases, then Landfall synthesizes notes for the published tag.
+- [`examples/manual-tag.yml`](examples/manual-tag.yml): a manual tag push triggers synthesis and creates the GitHub Release first when needed.
+
+Each example is fully functional and includes inline comments for required permissions, secrets, and release-tag wiring.
 
 ## Portable Release Notes (Private Repos)
 

@@ -1,0 +1,53 @@
+name: Release Notes (manual tag + Landfall)
+
+on:
+  push:
+    tags:
+      # Adjust the pattern if your tags do not use a v-prefix.
+      - "v*"
+
+concurrency:
+  group: manual-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # If a tag is pushed manually without creating a release, create it so
+      # Landfall has a release body to update.
+      - name: Ensure GitHub Release exists for tag
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "GitHub Release already exists for ${RELEASE_TAG}"
+            exit 0
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${RELEASE_TAG}" \
+            --notes "Technical notes pending synthesis."
+
+      - name: Synthesize user-facing notes with Landfall
+        uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ github.ref_name }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}

@@ -1,0 +1,47 @@
+name: Release (release-please + Landfall)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # release-please creates/updates PRs and publishes releases.
+      contents: write
+      pull-requests: write
+      # Landfall can open/close synthesis failure issues.
+      issues: write
+
+    steps:
+      # release-please reads conventional commits and either:
+      # 1) updates/opens a release PR, or
+      # 2) publishes a GitHub Release when the release PR is merged.
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          # Pick the strategy that matches your repo.
+          release-type: simple
+
+      # Run Landfall only when release-please actually created a release.
+      # For monorepos, use path-scoped outputs like:
+      # steps.release.outputs['packages/my-lib--tag_name']
+      - name: Synthesize user-facing notes with Landfall
+        if: steps.release.outputs.release_created == 'true'
+        uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ steps.release.outputs.tag_name }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
