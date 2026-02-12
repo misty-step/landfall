@@ -272,16 +272,20 @@ def classify_release(version: str, technical: str) -> tuple[str, str]:
     'major', 'feature', or 'patch'.
     """
     normalized = normalize_version(version)
+    # Strip prerelease/build metadata (e.g. "1.2.0-rc.1" → "1.2.0")
+    normalized = re.split(r"[-+]", normalized, maxsplit=1)[0]
     parts = normalized.split(".")
+    # Pad to 3 parts for partial versions (e.g. "2" → ["2","0","0"])
+    while len(parts) < 3:
+        parts.append("0")
 
     has_breaking = bool(BREAKING_CHANGE_RE.search(technical))
 
-    # Determine bump type from semver structure
     if has_breaking:
         significance = "major"
-    elif len(parts) >= 3 and parts[2] == "0" and parts[1] == "0" and parts[0] != "0":
+    elif parts[2] == "0" and parts[1] == "0" and parts[0] != "0":
         significance = "major"
-    elif len(parts) >= 3 and parts[2] != "0":
+    elif parts[2] != "0":
         significance = "patch"
     else:
         significance = "feature"

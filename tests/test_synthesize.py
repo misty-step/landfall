@@ -157,54 +157,49 @@ def test_render_prompt_replaces_bullet_target():
     assert "{{BULLET_TARGET}}" not in rendered
 
 
-def test_classify_release_major_version():
-    significance, bullet_target = synthesize.classify_release("2.0.0", "- a\n- b\n- c")
-    assert significance == "major"
-    assert bullet_target == "5-10"
-
-
-def test_classify_release_minor_version():
-    significance, bullet_target = synthesize.classify_release("1.2.0", "- a\n- b")
-    assert significance == "feature"
-    assert bullet_target == "3-7"
-
-
-def test_classify_release_patch_version():
-    significance, bullet_target = synthesize.classify_release("1.2.3", "- a")
-    assert significance == "patch"
-    assert bullet_target == "1-3"
-
-
-def test_classify_release_breaking_changes_elevates_to_major():
-    changelog = "### BREAKING CHANGES\n- removed /v1/auth endpoint\n### Features\n- added OAuth"
-    significance, bullet_target = synthesize.classify_release("1.3.0", changelog)
-    assert significance == "major"
-    assert bullet_target == "5-10"
-
-
-def test_classify_release_breaking_change_singular_heading():
-    changelog = "### BREAKING CHANGE\n- removed legacy API"
-    significance, bullet_target = synthesize.classify_release("1.1.0", changelog)
-    assert significance == "major"
-    assert bullet_target == "5-10"
-
-
-def test_classify_release_v_prefix_stripped():
-    significance, bullet_target = synthesize.classify_release("v3.0.0", "- rewrite")
-    assert significance == "major"
-    assert bullet_target == "5-10"
-
-
-def test_classify_release_prerelease_zero_major():
-    significance, bullet_target = synthesize.classify_release("0.5.0", "- new feature")
-    assert significance == "feature"
-    assert bullet_target == "3-7"
-
-
-def test_classify_release_patch_with_zero_minor():
-    significance, bullet_target = synthesize.classify_release("1.0.1", "- fix")
-    assert significance == "patch"
-    assert bullet_target == "1-3"
+@pytest.mark.parametrize(
+    ("version", "technical", "expected_significance", "expected_bullets"),
+    [
+        # Major version bumps
+        ("2.0.0", "- a\n- b\n- c", "major", "5-10"),
+        ("v3.0.0", "- rewrite", "major", "5-10"),
+        # Minor / feature releases
+        ("1.2.0", "- a\n- b", "feature", "3-7"),
+        ("0.5.0", "- new feature", "feature", "3-7"),
+        # Patch releases
+        ("1.2.3", "- a", "patch", "1-3"),
+        ("1.0.1", "- fix", "patch", "1-3"),
+        # Breaking changes elevate to major regardless of semver
+        ("1.3.0", "### BREAKING CHANGES\n- removed /v1/auth\n### Features\n- OAuth", "major", "5-10"),
+        ("1.1.0", "### BREAKING CHANGE\n- removed legacy API", "major", "5-10"),
+        # Prerelease suffixes stripped before classification
+        ("1.2.0-rc.1", "- new feature", "feature", "3-7"),
+        ("1.2.0+build.7", "- new feature", "feature", "3-7"),
+        ("2.0.0-beta.1", "- rewrite", "major", "5-10"),
+        # Partial version strings padded to 3 parts
+        ("2", "- rewrite", "major", "5-10"),
+        ("1.2", "- feature", "feature", "3-7"),
+    ],
+    ids=[
+        "major-2.0.0",
+        "major-v3.0.0",
+        "feature-1.2.0",
+        "feature-0.5.0",
+        "patch-1.2.3",
+        "patch-1.0.1",
+        "breaking-elevates-minor",
+        "breaking-singular-heading",
+        "prerelease-rc-stripped",
+        "build-metadata-stripped",
+        "prerelease-major",
+        "partial-major",
+        "partial-minor",
+    ],
+)
+def test_classify_release(version, technical, expected_significance, expected_bullets):
+    significance, bullet_target = synthesize.classify_release(version, technical)
+    assert significance == expected_significance
+    assert bullet_target == expected_bullets
 
 
 # Keep backward compat — estimate_bullet_target delegates to classify_release
