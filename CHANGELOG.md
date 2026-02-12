@@ -1,3 +1,10 @@
+## [1.16.1](https://github.com/misty-step/landfall/compare/v1.16.0...v1.16.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* handle floating tags and deduplicate failure issues ([#84](https://github.com/misty-step/landfall/issues/84)) ([#85](https://github.com/misty-step/landfall/issues/85)) ([faa8c77](https://github.com/misty-step/landfall/commit/faa8c77c908fb03e193f68ad12252cb28e7e6dfa))
+
 # [1.16.0](https://github.com/misty-step/landfall/compare/v1.15.0...v1.16.0) (2026-02-12)
 
 
