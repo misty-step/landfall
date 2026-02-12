@@ -54,6 +54,15 @@ def parse_args() -> argparse.Namespace:
         help="Path to prompt template markdown file.",
     )
     parser.add_argument(
+        "--release-tag",
+        help="Only backfill this release tag (e.g. v1.2.3).",
+    )
+    parser.add_argument(
+        "--all-missing",
+        action="store_true",
+        help="Explicitly backfill all releases missing a What's New section.",
+    )
+    parser.add_argument(
         "--model",
         default="anthropic/claude-sonnet-4",
         help="Primary model ID (default: anthropic/claude-sonnet-4).",
@@ -119,6 +128,10 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("llm-api-key must be non-empty")
     if not args.prompt_template or not args.prompt_template.strip():
         raise ValueError("prompt-template must be non-empty")
+    if args.release_tag is not None and not args.release_tag.strip():
+        raise ValueError("release-tag must be non-empty")
+    if args.release_tag and args.all_missing:
+        raise ValueError("release-tag and all-missing are mutually exclusive")
     if not args.model or not args.model.strip():
         raise ValueError("model must be non-empty")
     if not args.api_url or not args.api_url.startswith(("http://", "https://")):
@@ -175,6 +188,43 @@ def fetch_all_releases(
             http.close()
 
     return releases
+
+
+def fetch_release_by_tag(
+    api_base_url: str,
+    repository: str,
+    release_tag: str,
+    headers: dict[str, str],
+    timeout: int,
+    retries: int,
+    retry_backoff: float,
+    session: requests.Session | None = None,
+) -> dict[str, Any]:
+    created_session = session is None
+    http = session or requests.Session()
+
+    try:
+        url = f"{api_base_url}/repos/{repository}/releases/tags/{release_tag}"
+        response = request_with_retry(
+            LOGGER,
+            http,
+            "GET",
+            url,
+            headers=headers,
+            timeout=timeout,
+            retries=retries,
+            retry_backoff=retry_backoff,
+        )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError("GitHub release response was not valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("GitHub release response was not an object")
+        return payload
+    finally:
+        if created_session:
+            http.close()
 
 
 def filter_releases(releases: list[dict]) -> tuple[list[dict], int, int]:
@@ -241,16 +291,36 @@ def main() -> int:
 
     http = requests.Session()
     try:
+        target_scope = "all_missing"
+        if args.release_tag:
+            target_scope = f"tag:{args.release_tag}"
+        elif args.all_missing:
+            target_scope = "all_missing_explicit"
+
         try:
-            releases = fetch_all_releases(
-                api_base_url=DEFAULT_GITHUB_API_BASE_URL,
-                repository=args.repo,
-                headers=headers,
-                timeout=args.timeout,
-                retries=args.retries,
-                retry_backoff=args.retry_backoff,
-                session=http,
-            )
+            if args.release_tag:
+                releases = [
+                    fetch_release_by_tag(
+                        api_base_url=DEFAULT_GITHUB_API_BASE_URL,
+                        repository=args.repo,
+                        release_tag=args.release_tag,
+                        headers=headers,
+                        timeout=args.timeout,
+                        retries=args.retries,
+                        retry_backoff=args.retry_backoff,
+                        session=http,
+                    )
+                ]
+            else:
+                releases = fetch_all_releases(
+                    api_base_url=DEFAULT_GITHUB_API_BASE_URL,
+                    repository=args.repo,
+                    headers=headers,
+                    timeout=args.timeout,
+                    retries=args.retries,
+                    retry_backoff=args.retry_backoff,
+                    session=http,
+                )
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else "unknown"
             text = exc.response.text if exc.response is not None else str(exc)
@@ -410,6 +480,7 @@ def main() -> int:
 
         print(
             "Backfill summary:"
+            f" target={target_scope}"
             f" total={total}"
             f" processed={processed}"
             f" skipped_filled={skipped_filled}"
@@ -423,4 +494,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

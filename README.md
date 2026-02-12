@@ -145,6 +145,36 @@ Use `mode: synthesis-only` when another tool handles versioning and you only wan
 
 This skips Node.js setup and semantic-release entirely — only Python is installed for synthesis. Works with any release tool that creates GitHub Releases.
 
+### Backfill Existing Releases
+
+Use `scripts/backfill.py` to repair already-published releases that are missing `## What's New`.
+
+Single release tag:
+
+```bash
+python scripts/backfill.py \
+  --repo owner/repo \
+  --github-token "$GH_RELEASE_TOKEN" \
+  --llm-api-key "$OPENROUTER_API_KEY" \
+  --prompt-template templates/synthesis-prompt.md \
+  --release-tag v1.12.0
+```
+
+All missing releases:
+
+```bash
+python scripts/backfill.py \
+  --repo owner/repo \
+  --github-token "$GH_RELEASE_TOKEN" \
+  --llm-api-key "$OPENROUTER_API_KEY" \
+  --prompt-template templates/synthesis-prompt.md \
+  --all-missing
+```
+
+Notes:
+- `--all-missing` is optional; omitting both selectors keeps current behavior (scan all releases and fill only missing ones).
+- Use `--dry-run` to preview without updating release bodies.
+
 ## Portable Release Notes (Private Repos)
 
 For private repos where GitHub Releases aren't publicly visible, use artifact outputs to make notes portable:
