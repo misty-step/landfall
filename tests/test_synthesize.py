@@ -157,6 +157,57 @@ def test_render_prompt_replaces_bullet_target():
     assert "{{BULLET_TARGET}}" not in rendered
 
 
+def test_classify_release_major_version():
+    significance, bullet_target = synthesize.classify_release("2.0.0", "- a\n- b\n- c")
+    assert significance == "major"
+    assert bullet_target == "5-10"
+
+
+def test_classify_release_minor_version():
+    significance, bullet_target = synthesize.classify_release("1.2.0", "- a\n- b")
+    assert significance == "feature"
+    assert bullet_target == "3-7"
+
+
+def test_classify_release_patch_version():
+    significance, bullet_target = synthesize.classify_release("1.2.3", "- a")
+    assert significance == "patch"
+    assert bullet_target == "1-3"
+
+
+def test_classify_release_breaking_changes_elevates_to_major():
+    changelog = "### BREAKING CHANGES\n- removed /v1/auth endpoint\n### Features\n- added OAuth"
+    significance, bullet_target = synthesize.classify_release("1.3.0", changelog)
+    assert significance == "major"
+    assert bullet_target == "5-10"
+
+
+def test_classify_release_breaking_change_singular_heading():
+    changelog = "### BREAKING CHANGE\n- removed legacy API"
+    significance, bullet_target = synthesize.classify_release("1.1.0", changelog)
+    assert significance == "major"
+    assert bullet_target == "5-10"
+
+
+def test_classify_release_v_prefix_stripped():
+    significance, bullet_target = synthesize.classify_release("v3.0.0", "- rewrite")
+    assert significance == "major"
+    assert bullet_target == "5-10"
+
+
+def test_classify_release_prerelease_zero_major():
+    significance, bullet_target = synthesize.classify_release("0.5.0", "- new feature")
+    assert significance == "feature"
+    assert bullet_target == "3-7"
+
+
+def test_classify_release_patch_with_zero_minor():
+    significance, bullet_target = synthesize.classify_release("1.0.1", "- fix")
+    assert significance == "patch"
+    assert bullet_target == "1-3"
+
+
+# Keep backward compat — estimate_bullet_target delegates to classify_release
 def test_estimate_bullet_target_major_release():
     assert synthesize.estimate_bullet_target("2.0.0", "- a\n- b\n- c") == "5-10"
 
