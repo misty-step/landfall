@@ -1,0 +1,65 @@
+# Synthesize release notes on manual tag push.
+#
+# How it works:
+#   1. You push a semver tag (v1.0.0, v2.3.1, etc.)
+#   2. A GitHub Release must already exist for that tag (create via gh CLI or UI)
+#   3. Landfall synthesizes user-facing notes and updates the release body
+#
+# This works with any workflow that creates releases and tags manually,
+# including `gh release create`, the GitHub UI, or custom scripts.
+#
+# Requirements:
+#   - Repository secrets: GH_RELEASE_TOKEN, OPENROUTER_API_KEY
+#   - A GitHub Release for the pushed tag (Landfall reads its body as input)
+#
+# Docs: https://github.com/misty-step/landfall
+
+name: Synthesize Release Notes
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+jobs:
+  synthesize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Landfall synthesis-only mode: skips semantic-release entirely,
+      # synthesizes user-facing notes for the tag that triggered this workflow.
+      - uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ github.ref_name }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          # Use the release body as source since there may be no CHANGELOG.md.
+          changelog-source: auto
+          # Optional: customize synthesis behavior.
+          # audience: developer
+          # llm-model: anthropic/claude-sonnet-4
+
+# Alternative: trigger on GitHub Release creation instead of tag push.
+# This guarantees a release exists before synthesis runs.
+#
+# on:
+#   release:
+#     types: [published]
+#
+# jobs:
+#   synthesize:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: misty-step/landfall@v1
+#         with:
+#           mode: synthesis-only
+#           release-tag: ${{ github.event.release.tag_name }}
+#           github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+#           llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}

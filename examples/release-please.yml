@@ -1,0 +1,65 @@
+# Release pipeline using Google's release-please for versioning
+# and Landfall for user-facing note synthesis.
+#
+# How it works:
+#   1. release-please analyzes conventional commits and opens a "Release PR"
+#   2. When that PR merges, release-please creates the GitHub Release and tag
+#   3. Landfall synthesizes user-facing notes and updates the release body
+#
+# Requirements:
+#   - Repository secrets: GH_RELEASE_TOKEN, OPENROUTER_API_KEY
+#   - Conventional commits (https://www.conventionalcommits.org)
+#
+# Docs:
+#   - release-please: https://github.com/googleapis/release-please-action
+#   - Landfall: https://github.com/misty-step/landfall
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # Change to match your project type:
+          # node, python, rust, go, simple, etc.
+          release-type: node
+
+  synthesize:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Landfall synthesis-only mode: skips semantic-release entirely,
+      # only runs LLM synthesis for the tag release-please just created.
+      - uses: misty-step/landfall@v1
+        with:
+          mode: synthesis-only
+          release-tag: ${{ needs.release-please.outputs.tag_name }}
+          github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+          llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          # Optional: customize synthesis behavior.
+          # audience: developer
+          # llm-model: anthropic/claude-sonnet-4
+          # llm-fallback-models: "google/gemini-2.5-flash,openai/gpt-4o-mini"
+          # changelog-source: release-body
