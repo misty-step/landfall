@@ -106,6 +106,9 @@ outputs:
   release-notes:
     description: Synthesized user-facing release notes markdown. Empty if synthesis was skipped or failed.
     value: ${{ steps.write_artifacts.outputs.notes }}
+  synthesis-quality:
+    description: "Quality of synthesized output: valid (passed validation), degraded (validation failed, using unvalidated output), or failed (synthesis itself failed)."
+    value: ${{ steps.synthesis_result.outputs.quality }}
 
 runs:
   using: composite
@@ -381,6 +384,7 @@ runs:
           echo "::notice::Using built-in prompt template audience: ${AUDIENCE}"
         fi
 
+        quality_file="${RUNNER_TEMP}/landfall-synthesis-quality.txt"
         synth_log="${RUNNER_TEMP}/landfall-synthesize.log"
         if ! python "${GITHUB_ACTION_PATH}/scripts/synthesize.py" \
           --api-key "${api_key}" \
@@ -397,6 +401,7 @@ runs:
           --release-body-file "${release_body_file}" \
           --pr-changelog-file "${pr_changelog_file}" \
           --prompt-template "${prompt_template}" \
+          --quality-file "${quality_file}" \
           > "${notes_file}" \
           2> "${synth_log}"; then
           details="$(tail -n 5 "${synth_log}" | tr '\r\n' ' ' | sed -E 's/[[:space:]]+/ /g' | sed -E 's/^ +| +$//g')"
@@ -419,8 +424,13 @@ runs:
           exit 0
         fi
 
+        quality="valid"
+        if [ -f "${quality_file}" ]; then
+          quality="$(cat "${quality_file}")"
+        fi
         set_output "succeeded" "true"
         set_output "notes_file" "${notes_file}"
+        set_output "quality" "${quality}"
 
     - name: Update release body
       id: update_release
@@ -517,6 +527,7 @@ runs:
         SYNTHESIS_ENABLED: ${{ inputs.synthesis }}
         RELEASED: ${{ steps.resolve_release.outputs.released }}
         SYNTH_STEP_SUCCEEDED: ${{ steps.synthesize.outputs.succeeded }}
+        SYNTH_QUALITY: ${{ steps.synthesize.outputs.quality }}
         UPDATE_STEP_SUCCEEDED: ${{ steps.update_release.outputs.succeeded }}
         SYNTH_FAILURE_STAGE: ${{ steps.synthesize.outputs.failure_stage }}
         SYNTH_FAILURE_MESSAGE: ${{ steps.synthesize.outputs.failure_message }}
@@ -534,10 +545,12 @@ runs:
         succeeded="false"
         failure_stage=""
         failure_message=""
+        quality="failed"
 
         if [ "${SYNTHESIS_ENABLED}" = "true" ] && [ "${RELEASED}" = "true" ]; then
           if [ "${SYNTH_STEP_SUCCEEDED}" = "true" ] && [ "${UPDATE_STEP_SUCCEEDED}" = "true" ]; then
             succeeded="true"
+            quality="${SYNTH_QUALITY:-valid}"
           else
             failure_stage="${SYNTH_FAILURE_STAGE}"
             failure_message="${SYNTH_FAILURE_MESSAGE}"
@@ -555,6 +568,7 @@ runs:
         fi
 
         set_output "succeeded" "${succeeded}"
+        set_output "quality" "${quality}"
         set_output "failure_stage" "${failure_stage}"
         set_output "failure_message" "${failure_message}"
 

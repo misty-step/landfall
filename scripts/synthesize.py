@@ -7,6 +7,7 @@ import argparse
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -128,6 +129,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1.0,
         help="Base backoff seconds between retries (default: 1.0).",
+    )
+    parser.add_argument(
+        "--quality-file",
+        default="",
+        help="Write synthesis quality status (valid, degraded, failed) to this file.",
     )
     parser.add_argument(
         "--log-level",
@@ -601,6 +607,225 @@ def synthesize_notes(
     return notes
 
 
+VALID_SECTION_HEADINGS = frozenset({
+    "## Breaking Changes",
+    "## New Features",
+    "## Improvements",
+    "## Bug Fixes",
+})
+
+LEAKED_PR_NUMBER_RE = re.compile(r"(?<![#\w])#(\d+)\b")
+LEAKED_COMMIT_HASH_RE = re.compile(r"\b([0-9a-f]{7,40})\b", re.IGNORECASE)
+
+INTRO_PATTERNS = (
+    "here are",
+    "here's",
+    "hello",
+    "hi ",
+    "hey ",
+    "welcome",
+    "i'm happy",
+    "i'm excited",
+    "glad to",
+)
+SIGNOFF_PATTERNS = (
+    "hope this helps",
+    "let me know",
+    "feel free",
+    "happy to help",
+    "enjoy",
+    "that's all",
+    "thanks for",
+    "thank you",
+)
+
+
+@dataclass
+class ValidationResult:
+    valid: bool
+    issues: list[str] = field(default_factory=list)
+
+
+def _check_headings(lines: list[str]) -> list[str]:
+    headings = [line.strip() for line in lines if line.strip().startswith("## ")]
+    if not headings:
+        return ["no section headings found"]
+    unexpected = [h for h in headings if h not in VALID_SECTION_HEADINGS]
+    if unexpected:
+        return [f"unexpected headings: {', '.join(unexpected)}"]
+    return []
+
+
+def _check_leaked_metadata(lines: list[str]) -> list[str]:
+    issues: list[str] = []
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for match in LEAKED_PR_NUMBER_RE.finditer(stripped):
+            issues.append(f"line {i}: leaked PR number #{match.group(1)}")
+        for match in LEAKED_COMMIT_HASH_RE.finditer(stripped):
+            candidate = match.group(1)
+            has_digit = any(c.isdigit() for c in candidate)
+            has_alpha = any(c.isalpha() for c in candidate)
+            if has_digit and has_alpha:
+                issues.append(f"line {i}: possible leaked commit hash '{candidate}'")
+    return issues
+
+
+def _check_empty_sections(lines: list[str]) -> list[str]:
+    issues: list[str] = []
+    heading_indices = [i for i, line in enumerate(lines) if line.strip().startswith("## ")]
+    for idx, start in enumerate(heading_indices):
+        end = heading_indices[idx + 1] if idx + 1 < len(heading_indices) else len(lines)
+        section_body = lines[start + 1 : end]
+        has_content = any(line.strip() for line in section_body)
+        if not has_content:
+            issues.append(f"empty section: {lines[start].strip()}")
+    return issues
+
+
+def _check_bullet_count(lines: list[str], bullet_target: str) -> list[str]:
+    if not bullet_target or "-" not in bullet_target:
+        return []
+    bullets = [line for line in lines if re.match(r"^\s*[-*+]\s", line)]
+    lo, _ = bullet_target.split("-", 1)
+    min_bullets = int(lo)
+    if len(bullets) < min_bullets:
+        return [f"too few bullets ({len(bullets)}); expected {bullet_target}"]
+    return []
+
+
+def _check_intro_outro(lines: list[str]) -> list[str]:
+    issues: list[str] = []
+    first = lines[0].strip().lower() if lines else ""
+    if first and not first.startswith("##"):
+        for pattern in INTRO_PATTERNS:
+            if first.startswith(pattern):
+                issues.append("output starts with intro text")
+                break
+    last = ""
+    for line in reversed(lines):
+        if line.strip():
+            last = line.strip().lower()
+            break
+    if last:
+        for pattern in SIGNOFF_PATTERNS:
+            if pattern in last:
+                issues.append("output ends with sign-off text")
+                break
+    return issues
+
+
+def _check_markdown_formatting(lines: list[str]) -> list[str]:
+    issues: list[str] = []
+    for i, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        bold_count = len(re.findall(r"\*\*", stripped))
+        if bold_count % 2 != 0:
+            issues.append(f"line {i}: unclosed bold markdown formatting")
+    return issues
+
+
+def validate_synthesis_output(notes: str, bullet_target: str) -> ValidationResult:
+    """Validate LLM-synthesized release notes for common quality issues."""
+    stripped = notes.strip()
+    if not stripped:
+        return ValidationResult(valid=False, issues=["output is empty"])
+
+    lines = stripped.splitlines()
+    issues: list[str] = []
+    issues.extend(_check_headings(lines))
+    issues.extend(_check_leaked_metadata(lines))
+    issues.extend(_check_empty_sections(lines))
+    issues.extend(_check_bullet_count(lines, bullet_target))
+    issues.extend(_check_intro_outro(lines))
+    issues.extend(_check_markdown_formatting(lines))
+    return ValidationResult(valid=len(issues) == 0, issues=issues)
+
+
+def _build_retry_prompt(original_prompt: str, issues: list[str]) -> str:
+    feedback = "\n".join(f"- {issue}" for issue in issues)
+    return (
+        f"{original_prompt}\n\n"
+        "---\n\n"
+        "## Validation feedback (previous attempt failed these checks)\n\n"
+        f"{feedback}\n\n"
+        "Fix these issues in your output. Start directly with a ## heading."
+    )
+
+
+def synthesize_with_validation(
+    api_url: str,
+    api_key: str,
+    model: str,
+    prompt: str,
+    timeout: int,
+    retries: int,
+    retry_backoff: float,
+    bullet_target: str,
+    session: requests.Session | None = None,
+) -> tuple[str, str]:
+    """Synthesize notes and validate output, retrying once on failure.
+
+    Returns (notes, quality) where quality is 'valid', 'degraded', or 'failed'.
+    """
+    notes = synthesize_notes(
+        api_url=api_url,
+        api_key=api_key,
+        model=model,
+        prompt=prompt,
+        timeout=timeout,
+        retries=retries,
+        retry_backoff=retry_backoff,
+        session=session,
+    )
+
+    result = validate_synthesis_output(notes, bullet_target)
+    if result.valid:
+        return notes, "valid"
+
+    log_event(
+        LOGGER,
+        logging.WARNING,
+        "validation_failed",
+        attempt=1,
+        issues=result.issues,
+    )
+
+    # Retry once with validation feedback
+    retry_prompt = _build_retry_prompt(prompt, result.issues)
+    try:
+        retry_notes = synthesize_notes(
+            api_url=api_url,
+            api_key=api_key,
+            model=model,
+            prompt=retry_prompt,
+            timeout=timeout,
+            retries=retries,
+            retry_backoff=retry_backoff,
+            session=session,
+        )
+    except (requests.HTTPError, requests.RequestException, RuntimeError):
+        log_event(LOGGER, logging.WARNING, "validation_retry_http_failed")
+        return notes, "degraded"
+
+    retry_result = validate_synthesis_output(retry_notes, bullet_target)
+    if retry_result.valid:
+        return retry_notes, "valid"
+
+    log_event(
+        LOGGER,
+        logging.WARNING,
+        "validation_failed",
+        attempt=2,
+        issues=retry_result.issues,
+    )
+    return notes, "degraded"
+
+
 def main() -> int:
     args = parse_args()
     configure_logging(args.log_level)
@@ -677,6 +902,12 @@ def main() -> int:
         voice_guide=args.voice_guide,
     )
 
+    _, bullet_target = classify_release(version, technical_text)
+
+    def _write_quality(quality: str) -> None:
+        if args.quality_file:
+            Path(args.quality_file).write_text(quality, encoding="utf-8")
+
     models_to_try = [args.model]
     if args.fallback_models:
         models_to_try.extend(
@@ -689,7 +920,7 @@ def main() -> int:
     status_codes: list[int] = []
     for model in models_to_try:
         try:
-            synthesized = synthesize_notes(
+            synthesized, quality = synthesize_with_validation(
                 api_url=args.api_url,
                 api_key=args.api_key,
                 model=model,
@@ -697,8 +928,16 @@ def main() -> int:
                 timeout=args.timeout,
                 retries=args.retries,
                 retry_backoff=args.retry_backoff,
+                bullet_target=bullet_target,
             )
-            log_event(LOGGER, logging.INFO, "synthesis_succeeded", model=model)
+            log_event(
+                LOGGER,
+                logging.INFO,
+                "synthesis_succeeded",
+                model=model,
+                quality=quality,
+            )
+            _write_quality(quality)
             print(synthesized)
             return 0
         except (requests.HTTPError, requests.RequestException, RuntimeError) as exc:
@@ -710,6 +949,8 @@ def main() -> int:
                 status_codes.append(exc.response.status_code)
             log_event(LOGGER, logging.WARNING, "model_failed", model=model, **error_fields)
             continue
+
+    _write_quality("failed")
 
     # Surface actionable diagnosis for common failure patterns
     if status_codes and all(code == 401 for code in status_codes):
