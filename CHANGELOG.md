@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/misty-step/landfall/compare/v1.14.0...v1.15.0) (2026-02-12)
+
+
+### Features
+
+* highlight breaking changes in notes ([#55](https://github.com/misty-step/landfall/issues/55)) ([#80](https://github.com/misty-step/landfall/issues/80)) ([af81075](https://github.com/misty-step/landfall/commit/af810757a8c11139819d2a4013bab41799b46642))
+
 # [1.14.0](https://github.com/misty-step/landfall/compare/v1.13.0...v1.14.0) (2026-02-12)
 
 
