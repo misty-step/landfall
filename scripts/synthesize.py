@@ -98,6 +98,16 @@ def parse_args() -> argparse.Namespace:
         help="Product name injected into the prompt template.",
     )
     parser.add_argument(
+        "--product-description",
+        default="",
+        help="Optional one-line product description injected into the prompt template as {{PRODUCT_CONTEXT}}.",
+    )
+    parser.add_argument(
+        "--voice-guide",
+        default="",
+        help="Optional tone/style guidance injected into the prompt template as {{VOICE_GUIDE}}.",
+    )
+    parser.add_argument(
         "--version",
         help="Version or tag used to locate a changelog section.",
     )
@@ -390,13 +400,42 @@ def estimate_bullet_target(version: str, technical: str) -> str:
     return bullet_target
 
 
-def render_prompt(template_text: str, product_name: str, version: str, technical: str) -> str:
+_SINGLE_LINE_RE = re.compile(r"\s+")
+
+
+def _normalize_single_line(value: str) -> str:
+    return _SINGLE_LINE_RE.sub(" ", value).strip()
+
+
+def _render_optional_section(title: str, body: str) -> str:
+    normalized = body.strip()
+    if not normalized:
+        return ""
+    return f"## {title}\n\n{normalized}\n"
+
+
+def render_prompt(
+    template_text: str,
+    product_name: str,
+    version: str,
+    technical: str,
+    *,
+    product_description: str = "",
+    voice_guide: str = "",
+) -> str:
     bullet_target = estimate_bullet_target(version, technical)
     breaking_section = render_breaking_changes_section(technical)
+    product_context = _render_optional_section(
+        "Product context",
+        _normalize_single_line(product_description) if product_description else "",
+    )
+    voice_guide_section = _render_optional_section("Voice guide", voice_guide)
     return (
         template_text.replace("{{PRODUCT_NAME}}", product_name)
         .replace("{{VERSION}}", version)
         .replace("{{BULLET_TARGET}}", bullet_target)
+        .replace("{{PRODUCT_CONTEXT}}", product_context)
+        .replace("{{VOICE_GUIDE}}", voice_guide_section)
         .replace("{{BREAKING_CHANGES_SECTION}}", breaking_section)
         .replace("{{TECHNICAL_CHANGELOG}}", technical)
     )
@@ -577,7 +616,14 @@ def main() -> int:
 
     product_name = infer_product_name(args.product_name)
     version = args.version.strip() if args.version else "latest"
-    prompt = render_prompt(template_text, product_name, version, technical_text)
+    prompt = render_prompt(
+        template_text,
+        product_name,
+        version,
+        technical_text,
+        product_description=args.product_description,
+        voice_guide=args.voice_guide,
+    )
 
     models_to_try = [args.model]
     if args.fallback_models:
