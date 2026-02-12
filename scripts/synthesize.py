@@ -666,6 +666,8 @@ def _check_leaked_metadata(lines: list[str]) -> list[str]:
             issues.append(f"line {i}: leaked PR number #{match.group(1)}")
         for match in LEAKED_COMMIT_HASH_RE.finditer(stripped):
             candidate = match.group(1)
+            # Require both digits and letters to distinguish real hashes
+            # from pure-alpha hex words ("abcdefg", "deadbeef").
             has_digit = any(c.isdigit() for c in candidate)
             has_alpha = any(c.isalpha() for c in candidate)
             if has_digit and has_alpha:
