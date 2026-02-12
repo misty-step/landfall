@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/misty-step/landfall/compare/v1.10.0...v1.11.0) (2026-02-12)
+
+
+### Features
+
+* support targeted release-note resynthesis backfills ([#74](https://github.com/misty-step/landfall/issues/74)) ([eb3b553](https://github.com/misty-step/landfall/commit/eb3b5537df4d3695745e9180b8f6b550e7e2119a))
+
 # [1.10.0](https://github.com/misty-step/landfall/compare/v1.9.0...v1.10.0) (2026-02-11)
 
 
