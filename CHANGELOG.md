@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/misty-step/landfall/compare/v1.13.0...v1.14.0) (2026-02-12)
+
+
+### Features
+
+* **synthesis:** release significance detection ([#79](https://github.com/misty-step/landfall/issues/79)) ([a493f0b](https://github.com/misty-step/landfall/commit/a493f0b438ca74f2056eab97ca7af68724509287)), closes [#54](https://github.com/misty-step/landfall/issues/54)
+
 # [1.13.0](https://github.com/misty-step/landfall/compare/v1.12.0...v1.13.0) (2026-02-12)
 
 
