@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/misty-step/landfall/compare/v1.12.0...v1.13.0) (2026-02-12)
+
+
+### Features
+
+* **synthesis:** add PR-based changelog source selection ([#77](https://github.com/misty-step/landfall/issues/77)) ([9109621](https://github.com/misty-step/landfall/commit/9109621282e4c53a8d6dbaf2776cd917fb9f7b01))
+
 # [1.12.0](https://github.com/misty-step/landfall/compare/v1.11.0...v1.12.0) (2026-02-12)
 
 
