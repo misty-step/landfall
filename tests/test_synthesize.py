@@ -815,3 +815,247 @@ def synthesize_test_response(*, status_code: int, json_data: object):
                 raise error
 
     return _Response(status_code=status_code, json_data=json_data)
+
+
+# ---------------------------------------------------------------------------
+# validate_synthesis_output
+# ---------------------------------------------------------------------------
+
+VALID_NOTES = (
+    "## New Features\n"
+    "- You can now import workspaces in one click.\n"
+    "\n"
+    "## Bug Fixes\n"
+    "- Fixed a crash when saving empty profile fields.\n"
+)
+
+
+class TestValidateSynthesisOutput:
+    """Tests for post-synthesis output validation."""
+
+    def test_valid_output_passes(self):
+        result = synthesize.validate_synthesis_output(VALID_NOTES, "1-3")
+        assert result.valid is True
+        assert result.issues == []
+
+    def test_empty_output_fails(self):
+        result = synthesize.validate_synthesis_output("", "1-3")
+        assert result.valid is False
+        assert any("empty" in i for i in result.issues)
+
+    def test_whitespace_only_output_fails(self):
+        result = synthesize.validate_synthesis_output("   \n\n  ", "1-3")
+        assert result.valid is False
+
+    # -- Required headings --
+
+    def test_missing_all_headings_fails(self):
+        result = synthesize.validate_synthesis_output(
+            "Just some text without any headings.", "1-3"
+        )
+        assert result.valid is False
+        assert any("heading" in i.lower() for i in result.issues)
+
+    def test_unexpected_heading_fails(self):
+        notes = "## Summary\n- Something happened.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("unexpected" in i.lower() or "heading" in i.lower() for i in result.issues)
+
+    def test_all_valid_heading_combinations_pass(self):
+        for heading in ("## Breaking Changes", "## New Features", "## Improvements", "## Bug Fixes"):
+            notes = f"{heading}\n- Item one.\n"
+            result = synthesize.validate_synthesis_output(notes, "1-3")
+            assert result.valid is True, f"heading {heading!r} should be valid"
+
+    # -- Leaked metadata --
+
+    def test_leaked_pr_number_fails(self):
+        notes = "## Bug Fixes\n- Fixed issue #123 with login.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("#123" in i for i in result.issues)
+
+    def test_leaked_commit_hash_fails(self):
+        notes = "## Bug Fixes\n- Fixed in abc1234.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("commit" in i.lower() or "hash" in i.lower() for i in result.issues)
+
+    def test_heading_hash_not_false_positive(self):
+        """## headings should not trigger PR number detection."""
+        notes = "## New Features\n- You can now do things.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is True
+
+    def test_hex_word_without_digits_not_false_positive(self):
+        """Pure alpha hex like 'abcdefg' should not trigger commit hash detection."""
+        notes = "## New Features\n- The backend service is faster.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is True
+
+    # -- Empty sections --
+
+    def test_empty_section_fails(self):
+        notes = "## New Features\n\n## Bug Fixes\n- Fixed a crash.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("empty" in i.lower() for i in result.issues)
+
+    def test_section_with_only_whitespace_fails(self):
+        notes = "## New Features\n   \n  \n## Bug Fixes\n- Fixed a crash.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+
+    # -- Bullet count --
+
+    def test_too_few_bullets_fails(self):
+        notes = "## New Features\n- One thing.\n"
+        result = synthesize.validate_synthesis_output(notes, "3-7")
+        assert result.valid is False
+        assert any("bullet" in i.lower() for i in result.issues)
+
+    def test_bullet_count_within_range_passes(self):
+        notes = (
+            "## New Features\n"
+            "- Feature one.\n"
+            "- Feature two.\n"
+            "- Feature three.\n"
+        )
+        result = synthesize.validate_synthesis_output(notes, "3-7")
+        assert result.valid is True
+
+    def test_bullet_count_above_range_is_warning_not_failure(self):
+        """Too many bullets is a soft signal, not a hard failure."""
+        notes = (
+            "## New Features\n"
+            + "".join(f"- Feature {i}.\n" for i in range(10))
+        )
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        # Should still pass — too many is lenient
+        assert result.valid is True
+
+    # -- No intro/outro --
+
+    def test_intro_text_fails(self):
+        notes = "Here are the release notes:\n\n## New Features\n- Something.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("intro" in i.lower() for i in result.issues)
+
+    def test_outro_signoff_fails(self):
+        notes = "## New Features\n- Something.\n\nI hope this helps!\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("sign-off" in i.lower() or "outro" in i.lower() for i in result.issues)
+
+    # -- Markdown validity --
+
+    def test_unclosed_bold_fails(self):
+        notes = "## New Features\n- You can now **do things without closing.\n"
+        result = synthesize.validate_synthesis_output(notes, "1-3")
+        assert result.valid is False
+        assert any("markdown" in i.lower() or "format" in i.lower() for i in result.issues)
+
+
+# ---------------------------------------------------------------------------
+# Retry-with-validation integration
+# ---------------------------------------------------------------------------
+
+
+class TestSynthesisRetryOnValidation:
+    """Tests for retry logic when synthesis output fails validation."""
+
+    def test_valid_output_returns_without_retry(self, monkeypatch, request_session_factory):
+        """When first synthesis passes validation, no retry happens."""
+        call_count = 0
+
+        def fake_request_with_retry(_logger, _session, _method, _url, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            return synthesize_test_response(
+                status_code=200,
+                json_data={"choices": [{"message": {"content": VALID_NOTES}}]},
+            )
+
+        monkeypatch.setattr(synthesize, "request_with_retry", fake_request_with_retry)
+
+        notes, quality = synthesize.synthesize_with_validation(
+            api_url="https://api.example.test/chat/completions",
+            api_key="secret",
+            model="test-model",
+            prompt="prompt text",
+            timeout=5,
+            retries=0,
+            retry_backoff=0.0,
+            bullet_target="1-3",
+            session=request_session_factory([]),
+        )
+
+        assert quality == "valid"
+        assert "## New Features" in notes
+        assert call_count == 1
+
+    def test_invalid_then_valid_retries_once(self, monkeypatch, request_session_factory):
+        """When first attempt fails validation, retries with feedback."""
+        attempts = []
+        bad_notes = "Here's what changed:\n\n## New Features\n- Fixed #42.\n"
+
+        def fake_request_with_retry(_logger, _session, _method, _url, **kwargs):
+            attempts.append(kwargs.get("json", {}).get("messages", []))
+            if len(attempts) == 1:
+                return synthesize_test_response(
+                    status_code=200,
+                    json_data={"choices": [{"message": {"content": bad_notes}}]},
+                )
+            return synthesize_test_response(
+                status_code=200,
+                json_data={"choices": [{"message": {"content": VALID_NOTES}}]},
+            )
+
+        monkeypatch.setattr(synthesize, "request_with_retry", fake_request_with_retry)
+
+        notes, quality = synthesize.synthesize_with_validation(
+            api_url="https://api.example.test/chat/completions",
+            api_key="secret",
+            model="test-model",
+            prompt="prompt text",
+            timeout=5,
+            retries=0,
+            retry_backoff=0.0,
+            bullet_target="1-3",
+            session=request_session_factory([]),
+        )
+
+        assert quality == "valid"
+        assert len(attempts) == 2
+        # Second attempt should include validation feedback
+        second_messages = attempts[1]
+        assert any("validation" in str(m).lower() for m in second_messages)
+
+    def test_two_failures_returns_degraded(self, monkeypatch, request_session_factory):
+        """When both attempts fail validation, returns original with degraded quality."""
+        bad_notes = "Here's what changed:\n\n## Summary\n- Fixed #42.\n"
+
+        def fake_request_with_retry(_logger, _session, _method, _url, **_kwargs):
+            return synthesize_test_response(
+                status_code=200,
+                json_data={"choices": [{"message": {"content": bad_notes}}]},
+            )
+
+        monkeypatch.setattr(synthesize, "request_with_retry", fake_request_with_retry)
+
+        notes, quality = synthesize.synthesize_with_validation(
+            api_url="https://api.example.test/chat/completions",
+            api_key="secret",
+            model="test-model",
+            prompt="prompt text",
+            timeout=5,
+            retries=0,
+            retry_backoff=0.0,
+            bullet_target="1-3",
+            session=request_session_factory([]),
+        )
+
+        assert quality == "degraded"
+        assert notes == bad_notes.strip()
