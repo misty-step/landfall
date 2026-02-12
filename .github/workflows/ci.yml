@@ -48,11 +48,14 @@ jobs:
 
       - name: Verify metadata versions match latest release tag
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           tag_ref="HEAD"
-          if git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
-            tag_ref="HEAD^2"
+          if [ "${EVENT_NAME}" = "pull_request" ] && [ -n "${PR_BASE_SHA}" ]; then
+            tag_ref="${PR_BASE_SHA}"
           fi
           python scripts/check-version-sync.py --reference "${tag_ref}"
 
