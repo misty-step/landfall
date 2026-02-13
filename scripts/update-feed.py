@@ -156,10 +156,7 @@ def resolve_feed_path(feed_file: str, workspace: str) -> Path:
         return raw
 
     ws = Path(workspace_value).resolve()
-    if raw.is_absolute():
-        raise ValueError("feed-file must be a relative path within workspace")
-
-    candidate = (ws / raw).resolve()
+    candidate = raw.resolve() if raw.is_absolute() else (ws / raw).resolve()
     if not candidate.is_relative_to(ws):
         raise ValueError("feed-file must stay within workspace")
 

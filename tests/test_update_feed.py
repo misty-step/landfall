@@ -158,6 +158,48 @@ def test_validate_args_rejects_invalid_inputs(update_feed):
             )
         )
 
+    with pytest.raises(ValueError, match="release-tag must be non-empty"):
+        update_feed.validate_args(
+            argparse.Namespace(
+                feed_file="feed.xml",
+                max_entries=50,
+                repository="owner/repo",
+                release_tag=" ",
+                release_url="https://example.com",
+                notes_file="notes.md",
+                workspace="",
+                published_at="",
+            )
+        )
+
+    with pytest.raises(ValueError, match="release-url must be non-empty"):
+        update_feed.validate_args(
+            argparse.Namespace(
+                feed_file="feed.xml",
+                max_entries=50,
+                repository="owner/repo",
+                release_tag="v1.2.3",
+                release_url=" ",
+                notes_file="notes.md",
+                workspace="",
+                published_at="",
+            )
+        )
+
+    with pytest.raises(ValueError, match="notes-file must be non-empty"):
+        update_feed.validate_args(
+            argparse.Namespace(
+                feed_file="feed.xml",
+                max_entries=50,
+                repository="owner/repo",
+                release_tag="v1.2.3",
+                release_url="https://example.com",
+                notes_file=" ",
+                workspace="",
+                published_at="",
+            )
+        )
+
     with pytest.raises(ValueError, match="max-entries must be > 0"):
         update_feed.validate_args(
             argparse.Namespace(
@@ -193,6 +235,11 @@ def test_parse_pubdate_returns_none_for_invalid(update_feed):
     assert update_feed.parse_pubdate("not-a-date") is None
 
 
+def test_parse_pubdate_parses_rfc2822(update_feed):
+    parsed = update_feed.parse_pubdate("Wed, 15 Jan 2025 10:30:00 GMT")
+    assert parsed == datetime.datetime(2025, 1, 15, 10, 30, 0, tzinfo=datetime.timezone.utc)
+
+
 def test_load_existing_feed_raises_for_missing_channel(update_feed, tmp_path: Path):
     feed = tmp_path / "feed.xml"
     feed.write_text('<?xml version="1.0"?><rss version="2.0"></rss>', encoding="utf-8")
@@ -212,8 +259,11 @@ def test_load_existing_feed_raises_for_invalid_xml(update_feed, tmp_path: Path):
 def test_resolve_feed_path_enforces_workspace_bounds(update_feed, tmp_path: Path):
     workspace = str(tmp_path)
     assert update_feed.resolve_feed_path("docs/releases.xml", workspace) == (tmp_path / "docs" / "releases.xml")
+    assert update_feed.resolve_feed_path(str(tmp_path / "docs" / "releases.xml"), workspace) == (
+        tmp_path / "docs" / "releases.xml"
+    )
 
-    with pytest.raises(ValueError, match="relative path"):
+    with pytest.raises(ValueError, match="stay within workspace"):
         update_feed.resolve_feed_path("/abs/path.xml", workspace)
 
     with pytest.raises(ValueError, match="stay within workspace"):
@@ -344,3 +394,34 @@ def test_main_returns_error_for_corrupt_existing_feed(update_feed, tmp_path: Pat
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "failed to update RSS feed" in captured.err
+
+
+def test_main_returns_error_when_feed_file_escapes_workspace(update_feed, tmp_path: Path, monkeypatch, capsys):
+    notes = tmp_path / "notes.md"
+    notes.write_text("## Notes\n- ok\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "update-feed.py",
+            "--feed-file",
+            "../escape.xml",
+            "--repository",
+            "owner/repo",
+            "--release-tag",
+            "v1.2.3",
+            "--release-url",
+            "https://example.com",
+            "--notes-file",
+            str(notes),
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    exit_code = update_feed.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "stay within workspace" in captured.err
