@@ -119,6 +119,11 @@ def write_artifacts():
 
 
 @pytest.fixture(scope="session")
+def notes_render():
+    return load_script_module("landfall_notes_render", "scripts/notes_render.py")
+
+
+@pytest.fixture(scope="session")
 def update_feed():
     return load_script_module("landfall_update_feed", "scripts/update-feed.py")
 

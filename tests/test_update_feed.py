@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import datetime
 import email.utils
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import pytest
 
 
 def _parse_feed(path: Path) -> tuple[ET.Element, ET.Element, list[ET.Element]]:
@@ -124,3 +128,219 @@ def test_update_feed_trims_to_max_entries(update_feed, tmp_path: Path):
 def test_cdata_escape_splits_illegal_sequence(update_feed):
     assert update_feed.cdata_escape("a]]>b") == "a]]]]><![CDATA[>b"
 
+
+def test_validate_args_rejects_invalid_inputs(update_feed):
+    with pytest.raises(ValueError, match="feed-file must be non-empty"):
+        update_feed.validate_args(
+            argparse.Namespace(
+                feed_file=" ",
+                max_entries=50,
+                repository="owner/repo",
+                release_tag="v1.2.3",
+                release_url="https://example.com",
+                notes_file="notes.md",
+                workspace="",
+                published_at="",
+            )
+        )
+
+    with pytest.raises(ValueError, match="repository must be in owner/repo format"):
+        update_feed.validate_args(
+            argparse.Namespace(
+                feed_file="feed.xml",
+                max_entries=50,
+                repository="invalid",
+                release_tag="v1.2.3",
+                release_url="https://example.com",
+                notes_file="notes.md",
+                workspace="",
+                published_at="",
+            )
+        )
+
+    with pytest.raises(ValueError, match="max-entries must be > 0"):
+        update_feed.validate_args(
+            argparse.Namespace(
+                feed_file="feed.xml",
+                max_entries=0,
+                repository="owner/repo",
+                release_tag="v1.2.3",
+                release_url="https://example.com",
+                notes_file="notes.md",
+                workspace="",
+                published_at="",
+            )
+        )
+
+
+def test_parse_iso8601_handles_z_suffix_offsets_and_naive(update_feed):
+    assert update_feed.parse_iso8601("2026-02-10T12:00:00Z") == datetime.datetime(
+        2026, 2, 10, 12, 0, 0, tzinfo=datetime.timezone.utc
+    )
+    assert update_feed.parse_iso8601("2026-02-10T14:00:00+02:00") == datetime.datetime(
+        2026, 2, 10, 12, 0, 0, tzinfo=datetime.timezone.utc
+    )
+    assert update_feed.parse_iso8601("2026-02-10T12:00:00") == datetime.datetime(
+        2026, 2, 10, 12, 0, 0, tzinfo=datetime.timezone.utc
+    )
+
+    with pytest.raises(ValueError):
+        update_feed.parse_iso8601("not-a-date")
+
+
+def test_parse_pubdate_returns_none_for_invalid(update_feed):
+    assert update_feed.parse_pubdate("") is None
+    assert update_feed.parse_pubdate("not-a-date") is None
+
+
+def test_load_existing_feed_raises_for_missing_channel(update_feed, tmp_path: Path):
+    feed = tmp_path / "feed.xml"
+    feed.write_text('<?xml version="1.0"?><rss version="2.0"></rss>', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing channel"):
+        update_feed.load_existing_feed(feed)
+
+
+def test_load_existing_feed_raises_for_invalid_xml(update_feed, tmp_path: Path):
+    feed = tmp_path / "feed.xml"
+    feed.write_text("<rss", encoding="utf-8")
+
+    with pytest.raises(ET.ParseError):
+        update_feed.load_existing_feed(feed)
+
+
+def test_resolve_feed_path_enforces_workspace_bounds(update_feed, tmp_path: Path):
+    workspace = str(tmp_path)
+    assert update_feed.resolve_feed_path("docs/releases.xml", workspace) == (tmp_path / "docs" / "releases.xml")
+
+    with pytest.raises(ValueError, match="relative path"):
+        update_feed.resolve_feed_path("/abs/path.xml", workspace)
+
+    with pytest.raises(ValueError, match="stay within workspace"):
+        update_feed.resolve_feed_path("../escape.xml", workspace)
+
+
+def test_main_returns_error_for_invalid_published_at(update_feed, tmp_path: Path, monkeypatch, capsys):
+    notes = tmp_path / "notes.md"
+    notes.write_text("## Notes\n- ok\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "update-feed.py",
+            "--feed-file",
+            "feed.xml",
+            "--repository",
+            "owner/repo",
+            "--release-tag",
+            "v1.2.3",
+            "--release-url",
+            "https://example.com",
+            "--notes-file",
+            str(notes),
+            "--workspace",
+            str(tmp_path),
+            "--published-at",
+            "not-a-date",
+        ],
+    )
+
+    exit_code = update_feed.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "::error::" in captured.err
+
+
+def test_main_returns_error_for_missing_notes_file(update_feed, tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "update-feed.py",
+            "--feed-file",
+            "feed.xml",
+            "--repository",
+            "owner/repo",
+            "--release-tag",
+            "v1.2.3",
+            "--release-url",
+            "https://example.com",
+            "--notes-file",
+            str(tmp_path / "missing.md"),
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    exit_code = update_feed.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "failed to read notes file" in captured.err
+
+
+def test_main_returns_error_for_empty_notes_file(update_feed, tmp_path: Path, monkeypatch, capsys):
+    notes = tmp_path / "notes.md"
+    notes.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "update-feed.py",
+            "--feed-file",
+            "feed.xml",
+            "--repository",
+            "owner/repo",
+            "--release-tag",
+            "v1.2.3",
+            "--release-url",
+            "https://example.com",
+            "--notes-file",
+            str(notes),
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    exit_code = update_feed.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "notes file is empty" in captured.err
+
+
+def test_main_returns_error_for_corrupt_existing_feed(update_feed, tmp_path: Path, monkeypatch, capsys):
+    notes = tmp_path / "notes.md"
+    notes.write_text("## Notes\n- ok\n", encoding="utf-8")
+
+    feed = tmp_path / "feed.xml"
+    feed.write_text("<rss", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "update-feed.py",
+            "--feed-file",
+            "feed.xml",
+            "--repository",
+            "owner/repo",
+            "--release-tag",
+            "v1.2.3",
+            "--release-url",
+            "https://example.com",
+            "--notes-file",
+            str(notes),
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    exit_code = update_feed.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "failed to update RSS feed" in captured.err
