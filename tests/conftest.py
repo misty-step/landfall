@@ -25,6 +25,8 @@ def load_script_module(module_name: str, relative_path: str) -> ModuleType:
         raise RuntimeError(f"unable to load module from {module_path}")
 
     module = importlib.util.module_from_spec(spec)
+    # Some modules (dataclasses + future annotations) expect their module to be in sys.modules during exec.
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -114,6 +116,16 @@ def update_release():
 @pytest.fixture(scope="session")
 def write_artifacts():
     return load_script_module("landfall_write_artifacts", "scripts/write-artifacts.py")
+
+
+@pytest.fixture(scope="session")
+def notes_render():
+    return load_script_module("landfall_notes_render", "scripts/notes_render.py")
+
+
+@pytest.fixture(scope="session")
+def update_feed():
+    return load_script_module("landfall_update_feed", "scripts/update-feed.py")
 
 
 @pytest.fixture(scope="session")
