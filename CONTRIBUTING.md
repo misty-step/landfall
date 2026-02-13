@@ -59,6 +59,11 @@ Use [Conventional Commits](https://www.conventionalcommits.org/). semantic-relea
 - `feat!:` or `BREAKING CHANGE:` — major release
 - `chore:`, `docs:`, `ci:` — no release
 
+## Security
+
+- Don't pass secrets via CLI args in action steps (shows up in process listings). Use env vars.
+- For provider-specific webhooks (ex: Slack), validate hostname allowlists (defense-in-depth).
+
 ## Release
 
 Releases are fully automated. Merging to `master` triggers:

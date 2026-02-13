@@ -89,6 +89,9 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `product-description` | No | `""` | One-line product description injected into the synthesis prompt as `{{PRODUCT_CONTEXT}}`. |
 | `voice-guide` | No | `""` | Tone/style guidance injected into the synthesis prompt as `{{VOICE_GUIDE}}`. |
 | `changelog-source` | No | `auto` | Technical source for synthesis. `auto` tries `CHANGELOG.md`, then release body, then merged PR extraction. Or force: `changelog`, `release-body`, `prs`. |
+| `webhook-url` | No | `""` | Webhook endpoint URL. On synthesis success, POST a JSON payload with version, notes (markdown/HTML/plaintext), and release URL. |
+| `webhook-secret` | No | `""` | HMAC-SHA256 secret for signing webhook payloads (X-Signature-256 header). Optional. |
+| `slack-webhook-url` | No | `""` | Slack Incoming Webhook URL. On synthesis success, POST a Block Kit message with version, categorized notes, and release link. |
 
 \* `llm-api-key` is required when `synthesis: true`.
 
@@ -99,7 +102,10 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `released` | `true` if a new release/tag was created, otherwise `false`. |
 | `release-tag` | Tag created by `semantic-release` (empty if no release). |
 | `synthesis-succeeded` | `true` only when synthesis and release-body update both succeed for the released tag. |
+| `synthesis-quality` | `valid`, `degraded`, or `failed`. |
 | `release-notes` | Synthesized user-facing release notes markdown. Empty if synthesis was skipped or failed. |
+| `webhook-sent` | `true` when the generic webhook notification was sent successfully. |
+| `slack-sent` | `true` when the Slack notification was sent successfully. |
 
 ## Provider Examples
 
@@ -222,10 +228,12 @@ This writes per-version markdown files and maintains a JSON feed for changelog p
 ]
 ```
 
-The `release-notes` output is always available for piping to downstream steps:
+For automatic Slack notifications, set `slack-webhook-url`.
+
+The `release-notes` output is still available for custom notifications:
 
 ```yaml
-- name: Notify Slack
+- name: Custom Notify Slack
   if: steps.landfall.outputs.released == 'true'
   run: |
     echo "${{ steps.landfall.outputs.release-notes }}" | post-to-slack
