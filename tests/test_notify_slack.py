@@ -47,6 +47,21 @@ def test_validate_args_rejects_empty_slack_webhook_url(notify_slack):
     with pytest.raises(ValueError, match="slack-webhook-url must be non-empty"):
         notify_slack.validate_args(args)
 
+def test_validate_args_rejects_whitespace_only_slack_webhook_url(notify_slack):
+    args = argparse.Namespace(
+        slack_webhook_url="   ",
+        version="v1.2.3",
+        repository="octo/example",
+        release_url="https://github.com/octo/example/releases/tag/v1.2.3",
+        notes_file="notes.md",
+        timeout=10,
+        retries=2,
+        retry_backoff=1.0,
+        log_level="INFO",
+    )
+    with pytest.raises(ValueError, match="slack-webhook-url must be non-empty"):
+        notify_slack.validate_args(args)
+
 
 def test_validate_args_rejects_non_http_slack_webhook_url(notify_slack):
     args = argparse.Namespace(
@@ -189,6 +204,17 @@ def test_md_inline_to_slack_mrkdwn_handles_bold_link_label(notify_slack):
 def test_md_inline_to_slack_mrkdwn_filters_unsafe_link_schemes(notify_slack):
     assert notify_slack.md_inline_to_slack_mrkdwn("[x](javascript:alert(1))") == "x"
 
+def test_md_inline_to_slack_mrkdwn_escapes_html_entities(notify_slack):
+    assert notify_slack.md_inline_to_slack_mrkdwn("a & b < c > d") == "a &amp; b &lt; c &gt; d"
+
+
+def test_md_inline_to_slack_mrkdwn_treats_unclosed_bold_as_literal(notify_slack):
+    assert notify_slack.md_inline_to_slack_mrkdwn("**unclosed") == "**unclosed"
+
+
+def test_md_inline_to_slack_mrkdwn_treats_unclosed_code_as_literal(notify_slack):
+    assert notify_slack.md_inline_to_slack_mrkdwn("`unclosed") == "`unclosed"
+
 
 def test_parse_notes_sections_extracts_headings_and_bullets(notify_slack):
     notes = "## New Features\n- One\n- Two\n\n## Bug Fixes\n- Fixed it"
@@ -223,16 +249,36 @@ def test_truncate_handles_small_max_chars(notify_slack):
 
 
 def test_build_slack_payload_has_blocks(notify_slack):
+    fixed_now = notify_slack.datetime.datetime(2026, 2, 13, 3, 45, tzinfo=notify_slack.datetime.timezone.utc)
     payload = notify_slack.build_slack_payload(
         version="v1.2.3",
         repository="octo/example",
         release_url="https://github.com/octo/example/releases/tag/v1.2.3",
         notes_markdown="## New Features\n- **Bold** [Docs](https://example.com)",
+        now=fixed_now,
     )
     assert payload["text"]
     assert "blocks" in payload
     assert payload["blocks"][0]["type"] == "header"
     assert payload["blocks"][-1]["type"] == "context"
+    assert payload["blocks"][0]["text"]["text"] == "octo/example v1.2.3"
+    assert "https://github.com/octo/example/releases/tag/v1.2.3" in payload["blocks"][-1]["elements"][0]["text"]
+    assert "2026-02-13 03:45 UTC" in payload["blocks"][-1]["elements"][0]["text"]
+
+
+def test_build_slack_payload_truncates_long_sections(notify_slack):
+    long_text = "a" * 5000
+    payload = notify_slack.build_slack_payload(
+        version="v1.2.3",
+        repository="octo/example",
+        release_url="https://github.com/octo/example/releases/tag/v1.2.3",
+        notes_markdown=f"## New Features\n- {long_text}",
+    )
+
+    section = payload["blocks"][1]
+    section_text = section["text"]["text"]
+    assert len(section_text) <= 2900
+    assert section_text.endswith("_..._")
 
 
 # --- send_slack_webhook ---
@@ -317,6 +363,22 @@ def test_main_returns_1_on_empty_notes_file(notify_slack, tmp_path):
         retry_backoff=0.0,
         log_level="INFO",
     )):
+        result = notify_slack.main()
+
+    assert result == 1
+
+def test_main_returns_1_on_notes_read_os_error(notify_slack):
+    with patch.object(notify_slack, "parse_args", return_value=argparse.Namespace(
+        slack_webhook_url="https://hooks.slack.com/services/T000/B000/XXX",
+        version="v1.2.3",
+        repository="octo/example",
+        release_url="https://github.com/octo/example/releases/tag/v1.2.3",
+        notes_file="notes.md",
+        timeout=10,
+        retries=0,
+        retry_backoff=0.0,
+        log_level="INFO",
+    )), patch.object(notify_slack.Path, "read_text", side_effect=PermissionError("nope")):
         result = notify_slack.main()
 
     assert result == 1
