@@ -104,6 +104,14 @@ inputs:
     description: Slack Incoming Webhook URL. On synthesis success, POST a Block Kit message with version, categorized notes, and release link.
     default: ""
     required: false
+  rss-feed-file:
+    description: Path to an RSS 2.0 feed file to update on release (e.g., 'docs/releases.xml'). The file is committed back to the repo.
+    default: ""
+    required: false
+  rss-max-entries:
+    description: Maximum number of RSS entries to retain in the feed file.
+    default: "50"
+    required: false
 
 outputs:
   released:
@@ -545,6 +553,38 @@ runs:
           echo "${notes}"
           echo "LANDFALL_NOTES_EOF"
         } >> "${GITHUB_OUTPUT}"
+
+    - name: Update RSS feed file
+      if: inputs.rss-feed-file != '' && steps.resolve_release.outputs.released == 'true' && steps.synthesize.outputs.succeeded == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        release_tag="${{ steps.resolve_release.outputs.release_tag }}"
+        release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
+
+        python "${GITHUB_ACTION_PATH}/scripts/update-feed.py" \
+          --feed-file "${GITHUB_WORKSPACE}/${{ inputs.rss-feed-file }}" \
+          --max-entries "${{ inputs.rss-max-entries }}" \
+          --repository "${GITHUB_REPOSITORY}" \
+          --release-tag "${release_tag}" \
+          --release-url "${release_url}" \
+          --notes-file "${{ steps.synthesize.outputs.notes_file }}"
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+        git add "${{ inputs.rss-feed-file }}"
+        if git diff --cached --quiet; then
+          echo "::notice::RSS feed unchanged; skipping commit."
+          exit 0
+        fi
+
+        git commit -m "chore(feed): update releases feed for ${release_tag} [skip ci]"
+        git push origin "HEAD:${GITHUB_REF_NAME}"
 
     - name: Send webhook notification
       id: notify_webhook
