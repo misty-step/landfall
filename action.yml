@@ -160,6 +160,14 @@ runs:
           --model "${{ inputs.llm-model }}" \
           --api-url "${{ inputs.llm-api-url }}"
 
+    - name: Preflight tag history check
+      if: inputs.mode != 'synthesis-only'
+      shell: bash
+      run: |
+        set -euo pipefail
+        git fetch --tags --force 2>/dev/null || true
+        python "${GITHUB_ACTION_PATH}/scripts/preflight-tags.py"
+
     - name: Run semantic-release
       id: semantic_release
       if: inputs.mode != 'synthesis-only'
