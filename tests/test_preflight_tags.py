@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-import sys
 from unittest.mock import patch
 
 from conftest import load_script_module
+
+# Module-level import for @patch decorator resolution.
+# The fixture in conftest.py handles session-scoped loading; this mirrors
+# the pattern but is needed because @patch requires the module in sys.modules
+# at decoration time (before fixtures run).
+import sys
 
 preflight_tags = load_script_module("landfall_preflight_tags", "scripts/preflight-tags.py")
 sys.modules["landfall_preflight_tags"] = preflight_tags
@@ -27,6 +32,25 @@ class TestFilterVersionTags:
 
     def test_prerelease(self):
         assert preflight_tags.filter_version_tags(["v1.0.0-beta.1"]) == ["v1.0.0-beta.1"]
+
+
+class TestSemverKey:
+    def test_standard_tag(self):
+        assert preflight_tags._semver_key("v1.2.3") == (1, 2, 3)
+
+    def test_no_v_prefix(self):
+        assert preflight_tags._semver_key("1.2.3") == (1, 2, 3)
+
+    def test_double_digit_major(self):
+        assert preflight_tags._semver_key("v10.0.0") == (10, 0, 0)
+
+    def test_non_version_returns_zero(self):
+        assert preflight_tags._semver_key("not-a-tag") == (0, 0, 0)
+
+    def test_sort_order(self):
+        tags = ["v9.0.0", "v10.0.0", "v1.0.0", "v2.0.0"]
+        result = sorted(tags, key=preflight_tags._semver_key)
+        assert result == ["v1.0.0", "v2.0.0", "v9.0.0", "v10.0.0"]
 
 
 class TestDiagnoseOrphanedTags:
@@ -80,6 +104,16 @@ class TestDiagnoseOrphanedTags:
         assert result["earliest"] == "v1.0.0"
         assert result["latest"] == "v1.0.0"
 
+    def test_orphaned_semver_sort_not_lexicographic(self):
+        """v10.0.0 should sort after v9.0.0, not before."""
+        result = preflight_tags.diagnose_orphaned_tags(
+            all_tags=["v10.0.0", "v9.0.0", "v1.0.0"],
+            reachable_tags=[],
+        )
+        assert result is not None
+        assert result["earliest"] == "v1.0.0"
+        assert result["latest"] == "v10.0.0"
+
 
 class TestMain:
     @patch("landfall_preflight_tags.get_reachable_tags")
@@ -128,3 +162,15 @@ class TestMain:
         mock_all.return_value = ["feature", "deploy-2024"]
         mock_reachable.return_value = []
         assert preflight_tags.main() == 0
+
+    @patch("landfall_preflight_tags.get_current_branch")
+    @patch("landfall_preflight_tags.get_reachable_tags")
+    @patch("landfall_preflight_tags.get_all_tags")
+    def test_orphaned_suggests_highest_semver_tag(self, mock_all, mock_reachable, mock_branch, capsys):
+        """Merge suggestion should target the highest semver tag, not lexicographic."""
+        mock_all.return_value = ["v1.0.0", "v10.0.0", "v9.0.0"]
+        mock_reachable.return_value = []
+        mock_branch.return_value = "master"
+        preflight_tags.main()
+        captured = capsys.readouterr()
+        assert "v10.0.0" in captured.err

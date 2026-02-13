@@ -145,3 +145,10 @@ def close_resolved_failures():
 @pytest.fixture(scope="session")
 def extract_prs():
     return load_script_module("landfall_extract_prs", "scripts/extract-prs.py")
+
+
+@pytest.fixture(scope="session")
+def preflight_tags():
+    mod = load_script_module("landfall_preflight_tags", "scripts/preflight-tags.py")
+    sys.modules["landfall_preflight_tags"] = mod
+    return mod

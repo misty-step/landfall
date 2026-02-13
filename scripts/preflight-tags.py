@@ -15,7 +15,15 @@ import re
 import subprocess
 import sys
 
-VERSION_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+")
+VERSION_TAG_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
+
+
+def _semver_key(tag: str) -> tuple[int, int, int]:
+    """Extract (major, minor, patch) for sorting. Non-matches sort last."""
+    m = VERSION_TAG_RE.match(tag)
+    if not m:
+        return (0, 0, 0)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
 
 
 def get_all_tags() -> list[str]:
@@ -66,7 +74,7 @@ def diagnose_orphaned_tags(
     if reachable_version:
         return None
 
-    sorted_tags = sorted(version_tags)
+    sorted_tags = sorted(version_tags, key=_semver_key)
     return {
         "count": len(version_tags),
         "earliest": sorted_tags[0],
