@@ -92,6 +92,8 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `webhook-url` | No | `""` | Webhook endpoint URL. On synthesis success, POST a JSON payload with version, notes (markdown/HTML/plaintext), and release URL. |
 | `webhook-secret` | No | `""` | HMAC-SHA256 secret for signing webhook payloads (X-Signature-256 header). Optional. |
 | `slack-webhook-url` | No | `""` | Slack Incoming Webhook URL. On synthesis success, POST a Block Kit message with version, categorized notes, and release link. |
+| `rss-feed-file` | No | `""` | Update this RSS 2.0 feed file with each release (includes synthesized notes as HTML). The feed file is committed back to the repo. |
+| `rss-max-entries` | No | `50` | Maximum number of items retained in `rss-feed-file`. |
 
 \* `llm-api-key` is required when `synthesis: true`.
 
@@ -227,6 +229,21 @@ This writes per-version markdown files and maintains a JSON feed for changelog p
   }
 ]
 ```
+
+## RSS Release Feed
+
+To publish a simple RSS 2.0 release feed (for feed readers, docs sites, etc.), set `rss-feed-file`:
+
+```yaml
+- uses: misty-step/landfall@v1
+  with:
+    github-token: ${{ secrets.GH_RELEASE_TOKEN }}
+    llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+    rss-feed-file: docs/releases.xml
+    rss-max-entries: "50"
+```
+
+Landfall updates the feed on each synthesized release and commits the file back to your repo.
 
 For automatic Slack notifications, set `slack-webhook-url`.
 
