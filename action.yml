@@ -100,6 +100,10 @@ inputs:
     description: HMAC-SHA256 secret for signing webhook payloads (X-Signature-256 header). Optional.
     default: ""
     required: false
+  slack-webhook-url:
+    description: Slack Incoming Webhook URL. On synthesis success, POST a Block Kit message with version, categorized notes, and release link.
+    default: ""
+    required: false
 
 outputs:
   released:
@@ -120,6 +124,9 @@ outputs:
   webhook-sent:
     description: Whether the webhook notification was sent successfully.
     value: ${{ steps.notify_webhook.outputs.sent || 'false' }}
+  slack-sent:
+    description: Whether the Slack notification was sent successfully.
+    value: ${{ steps.notify_slack.outputs.sent || 'false' }}
 
 runs:
   using: composite
@@ -576,6 +583,43 @@ runs:
           set_output "sent" "true"
         else
           echo "::warning::Webhook notification failed; release continues."
+        fi
+
+    - name: Send Slack notification
+      id: notify_slack
+      if: inputs.slack-webhook-url != '' && steps.resolve_release.outputs.released == 'true' && steps.synthesize.outputs.succeeded == 'true'
+      shell: bash
+      env:
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+      run: |
+        set -euo pipefail
+
+        set_output() {
+          local key="$1"
+          local value="$2"
+          printf '%s=%s\n' "${key}" "${value}" >> "${GITHUB_OUTPUT}"
+        }
+
+        set_output "sent" "false"
+
+        release_tag="${{ steps.resolve_release.outputs.release_tag }}"
+        release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
+        notes_file="${{ steps.synthesize.outputs.notes_file }}"
+
+        if [ ! -s "${notes_file}" ]; then
+          echo "::warning::Slack notification skipped: notes file is empty or missing."
+          exit 0
+        fi
+
+        if python "${GITHUB_ACTION_PATH}/scripts/notify-slack.py" \
+          --slack-webhook-url "${SLACK_WEBHOOK_URL}" \
+          --version "${release_tag}" \
+          --repository "${GITHUB_REPOSITORY}" \
+          --release-url "${release_url}" \
+          --notes-file "${notes_file}"; then
+          set_output "sent" "true"
+        else
+          echo "::warning::Slack notification failed; release continues."
         fi
 
     - name: Summarize synthesis status
