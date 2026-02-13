@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import logging
+import os
 import re
 from pathlib import Path
 from urllib.parse import urlparse
@@ -20,7 +21,11 @@ REPOSITORY_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="POST Slack release notification.")
-    parser.add_argument("--slack-webhook-url", required=True, help="Slack Incoming Webhook URL.")
+    parser.add_argument(
+        "--slack-webhook-url",
+        default=os.environ.get("SLACK_WEBHOOK_URL", ""),
+        help="Slack Incoming Webhook URL (or set SLACK_WEBHOOK_URL).",
+    )
     parser.add_argument("--version", required=True, help="Release tag (e.g. v1.2.3).")
     parser.add_argument("--repository", required=True, help="GitHub repository (owner/repo).")
     parser.add_argument("--release-url", required=True, help="GitHub Release URL.")
@@ -40,8 +45,12 @@ def parse_args() -> argparse.Namespace:
 def validate_args(args: argparse.Namespace) -> None:
     if not args.slack_webhook_url or not args.slack_webhook_url.strip():
         raise ValueError("slack-webhook-url must be non-empty")
-    if not args.slack_webhook_url.startswith(("http://", "https://")):
+    slack_url = args.slack_webhook_url.strip()
+    parsed_slack_url = urlparse(slack_url)
+    if parsed_slack_url.scheme not in ("http", "https"):
         raise ValueError("slack-webhook-url must start with http:// or https://")
+    if parsed_slack_url.hostname != "hooks.slack.com":
+        raise ValueError("slack-webhook-url must use hooks.slack.com")
     if not args.version or not args.version.strip():
         raise ValueError("version must be non-empty")
     if not args.repository or not REPOSITORY_RE.match(args.repository):
@@ -71,6 +80,32 @@ def _safe_link_href(url: str) -> str | None:
     return None
 
 
+def _parse_markdown_link(text: str, start: int) -> tuple[str, str, int] | None:
+    if start >= len(text) or text[start] != "[":
+        return None
+    mid = text.find("](", start + 1)
+    if mid == -1:
+        return None
+
+    label = text[start + 1:mid]
+    url_start = mid + 2
+
+    # Allow parentheses inside URLs (common), but stop at the matching ')'.
+    depth = 0
+    j = url_start
+    while j < len(text):
+        ch = text[j]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                return (label, text[url_start:j], j)
+            depth -= 1
+        j += 1
+
+    return None
+
+
 def md_inline_to_slack_mrkdwn(text: str) -> str:
     out: list[str] = []
     i = 0
@@ -88,19 +123,16 @@ def md_inline_to_slack_mrkdwn(text: str) -> str:
                 i = end + 1
                 continue
         if text[i] == "[":
-            mid = text.find("](", i + 1)
-            if mid != -1:
-                end = text.find(")", mid + 2)
-                if end != -1:
-                    label = text[i + 1:mid]
-                    url = text[mid + 2:end]
-                    href = _safe_link_href(url)
-                    if href:
-                        out.append(f"<{href}|{md_inline_to_slack_mrkdwn(label)}>")
-                    else:
-                        out.append(md_inline_to_slack_mrkdwn(label))
-                    i = end + 1
-                    continue
+            parsed_link = _parse_markdown_link(text, i)
+            if parsed_link:
+                label, url, end = parsed_link
+                href = _safe_link_href(url)
+                if href:
+                    out.append(f"<{href}|{md_inline_to_slack_mrkdwn(label)}>")
+                else:
+                    out.append(md_inline_to_slack_mrkdwn(label))
+                i = end + 1
+                continue
         out.append(_escape_slack_text(text[i]))
         i += 1
     return "".join(out)
@@ -149,7 +181,7 @@ def parse_notes_sections(markdown: str) -> list[tuple[str, list[str]]]:
     return sections
 
 
-def _truncate(text: str, *, max_chars: int, suffix: str = "\n_…_") -> str:
+def _truncate(text: str, *, max_chars: int, suffix: str = "\n_..._") -> str:
     if len(text) <= max_chars:
         return text
     if max_chars <= len(suffix):
@@ -275,4 +307,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

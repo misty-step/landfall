@@ -612,7 +612,6 @@ runs:
         fi
 
         if python "${GITHUB_ACTION_PATH}/scripts/notify-slack.py" \
-          --slack-webhook-url "${SLACK_WEBHOOK_URL}" \
           --version "${release_tag}" \
           --repository "${GITHUB_REPOSITORY}" \
           --release-url "${release_url}" \
