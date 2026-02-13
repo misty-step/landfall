@@ -6,11 +6,11 @@ from __future__ import annotations
 import argparse
 import datetime
 import email.utils
+import os
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from xml.sax.saxutils import escape
 
 from notes_render import markdown_to_html_fragment
@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--release-tag", required=True, help="Release tag (e.g., v1.2.3).")
     parser.add_argument("--release-url", required=True, help="Release URL for the item link/guid.")
     parser.add_argument("--notes-file", required=True, help="Path to synthesized notes markdown file.")
+    parser.add_argument(
+        "--workspace",
+        default="",
+        help="Workspace root used to resolve + validate feed-file path. Defaults to $GITHUB_WORKSPACE when set.",
+    )
     parser.add_argument(
         "--published-at",
         default="",
@@ -142,6 +147,23 @@ def load_existing_feed(path: Path) -> tuple[FeedChannel, list[FeedItem]]:
 
 def ensure_parent_directory(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def resolve_feed_path(feed_file: str, workspace: str) -> Path:
+    raw = Path(feed_file)
+    workspace_value = workspace.strip()
+    if not workspace_value:
+        return raw
+
+    ws = Path(workspace_value).resolve()
+    if raw.is_absolute():
+        raise ValueError("feed-file must be a relative path within workspace")
+
+    candidate = (ws / raw).resolve()
+    if not candidate.is_relative_to(ws):
+        raise ValueError("feed-file must stay within workspace")
+
+    return candidate
 
 
 def cdata_escape(text: str) -> str:
@@ -264,7 +286,12 @@ def main() -> int:
         print("::error::notes file is empty", file=sys.stderr)
         return 1
 
-    feed_path = Path(args.feed_file)
+    workspace = args.workspace.strip() or os.environ.get("GITHUB_WORKSPACE", "").strip()
+    try:
+        feed_path = resolve_feed_path(args.feed_file, workspace)
+    except ValueError as exc:
+        print(f"::error::{exc}", file=sys.stderr)
+        return 1
     try:
         update_feed_file(
             feed_path,
@@ -285,4 +312,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

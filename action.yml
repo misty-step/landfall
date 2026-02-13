@@ -566,12 +566,13 @@ runs:
         release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
 
         python "${GITHUB_ACTION_PATH}/scripts/update-feed.py" \
-          --feed-file "${GITHUB_WORKSPACE}/${{ inputs.rss-feed-file }}" \
+          --feed-file "${{ inputs.rss-feed-file }}" \
           --max-entries "${{ inputs.rss-max-entries }}" \
           --repository "${GITHUB_REPOSITORY}" \
           --release-tag "${release_tag}" \
           --release-url "${release_url}" \
-          --notes-file "${{ steps.synthesize.outputs.notes_file }}"
+          --notes-file "${{ steps.synthesize.outputs.notes_file }}" \
+          --workspace "${GITHUB_WORKSPACE}"
 
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

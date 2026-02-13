@@ -134,7 +134,7 @@ def markdown_to_html_fragment(markdown: str) -> str:
 
         if stripped.startswith("## "):
             close_list()
-            rendered.append(f"<h2>{html.escape(stripped[3:].strip(), quote=True)}</h2>")
+            rendered.append(f"<h2>{markdown_inline_to_html(stripped[3:].strip())}</h2>")
             continue
 
         if stripped.startswith("- "):
@@ -149,4 +149,3 @@ def markdown_to_html_fragment(markdown: str) -> str:
 
     close_list()
     return "\n".join(rendered).strip()
-
