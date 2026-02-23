@@ -101,9 +101,9 @@ def main() -> int:
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
         if status == 401:
-            if "openrouter.ai" in args.api_url:
+            if args.api_url.startswith("https://openrouter.ai/"):
                 message = (
-                    "Synthesis skipped: LLM auth failed (HTTP 401). "
+                    "LLM auth failed (HTTP 401). "
                     "Default provider is OpenRouter — ensure llm-api-key is an OpenRouter key "
                     "(format: sk-or-...). Get a key at https://openrouter.ai/keys"
                 )
