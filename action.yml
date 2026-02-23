@@ -771,7 +771,6 @@ runs:
         FAILURE_STAGE: ${{ steps.synthesis_result.outputs.failure_stage }}
         FAILURE_MESSAGE: ${{ steps.synthesis_result.outputs.failure_message }}
         RELEASE_TAG: ${{ steps.resolve_release.outputs.release_tag }}
-        WORKFLOW_NAME: ${{ github.workflow }}
       run: |
         set -euo pipefail
         run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -780,7 +779,7 @@ runs:
           --repository "${GITHUB_REPOSITORY}" \
           --release-tag "${RELEASE_TAG}" \
           --workflow-run-url "${run_url}" \
-          --workflow-name "${WORKFLOW_NAME}" \
+          --workflow-name "${GITHUB_WORKFLOW}" \
           --failure-stage "${FAILURE_STAGE}" \
           --failure-message "${FAILURE_MESSAGE}"; then
           echo "::warning::Landfall could not create a synthesis failure issue."
