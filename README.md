@@ -268,9 +268,10 @@ If Landfall releases itself, use local action code in `.github/workflows/release
     github-token: ${{ secrets.GH_RELEASE_TOKEN }}
     llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
     synthesis-required: "true"
+    floating-tags: "true"
 ```
 
-Then move `v1` to the new `release-tag` output in the same workflow. This avoids stale major-tag drift.
+This keeps release + `v1` floating-tag management inside Landfall (no manual tag step in workflow).
 
 ### Metadata Version Sync (Landfall Repo)
 
