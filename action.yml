@@ -747,6 +747,10 @@ runs:
         git fetch --tags --force
 
         major_tag="$(python "${GITHUB_ACTION_PATH}/scripts/update-floating-tag.py" --release-tag "${release_tag}")"
+        if [ -z "${major_tag}" ]; then
+          echo "::notice::Skipping floating tag update for pre-release tag ${release_tag}."
+          exit 0
+        fi
         sha="$(git rev-list -n 1 "${release_tag}")"
 
         echo "Updating floating tag ${major_tag} → ${sha}"

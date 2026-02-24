@@ -8,12 +8,17 @@ import re
 import sys
 
 
-def parse_major_tag(release_tag: str) -> str:
-    """Extract 'vN' from stable semver tags like 'v1.2.3' or '1.2.3'."""
+def parse_major_tag(release_tag: str) -> str | None:
+    """Extract 'vN' from stable semver tags; return None for pre-release tags."""
     match = re.match(r"^v?(\d+)\.\d+\.\d+$", release_tag)
-    if not match:
-        raise ValueError(f"invalid semver tag: {release_tag}")
-    return f"v{match.group(1)}"
+    if match:
+        return f"v{match.group(1)}"
+
+    # Pre-release tags should not move floating major tags.
+    if re.match(r"^v?\d+\.\d+\.\d+-", release_tag):
+        return None
+
+    raise ValueError(f"invalid semver tag: {release_tag}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -26,6 +31,9 @@ def main(argv: list[str] | None = None) -> None:
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
+
+    if major_tag is None:
+        return
 
     print(major_tag)
 
