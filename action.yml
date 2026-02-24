@@ -259,29 +259,6 @@ runs:
           echo "release_tag=${SR_RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
         fi
 
-    - name: Update floating major tag
-      id: update_floating_tag
-      if: inputs.floating-tags == 'true' && steps.resolve_release.outputs.released == 'true'
-      shell: bash
-      env:
-        GITHUB_TOKEN: ${{ inputs.github-token }}
-        RELEASE_TAG: ${{ steps.resolve_release.outputs.release_tag }}
-      run: |
-        set -euo pipefail
-
-        release_tag="${RELEASE_TAG}"
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-        git fetch --tags --force
-
-        major_tag="$(python "${GITHUB_ACTION_PATH}/scripts/update-floating-tag.py" --release-tag "${release_tag}")"
-        sha="$(git rev-list -n 1 "${release_tag}")"
-
-        echo "Updating floating tag ${major_tag} → ${sha}"
-        git tag -f "${major_tag}" "${sha}"
-        git push origin "refs/tags/${major_tag}" --force
-
     - name: Synthesize user-facing notes
       id: synthesize
       if: inputs.synthesis == 'true' && steps.resolve_release.outputs.released == 'true'
@@ -752,6 +729,29 @@ runs:
         set_output "quality" "${quality}"
         set_output "failure_stage" "${failure_stage}"
         set_output "failure_message" "${failure_message}"
+
+    - name: Update floating major tag
+      id: update_floating_tag
+      if: inputs.floating-tags == 'true' && steps.resolve_release.outputs.released == 'true' && (inputs.synthesis != 'true' || inputs.synthesis-required != 'true' || steps.synthesis_result.outputs.succeeded == 'true')
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        RELEASE_TAG: ${{ steps.resolve_release.outputs.release_tag }}
+      run: |
+        set -euo pipefail
+
+        release_tag="${RELEASE_TAG}"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        git fetch --tags --force
+
+        major_tag="$(python "${GITHUB_ACTION_PATH}/scripts/update-floating-tag.py" --release-tag "${release_tag}")"
+        sha="$(git rev-list -n 1 "${release_tag}")"
+
+        echo "Updating floating tag ${major_tag} → ${sha}"
+        git tag -f "${major_tag}" "${sha}"
+        git push origin "refs/tags/${major_tag}" --force
 
     - name: Close resolved synthesis failure issues
       if: inputs.synthesis == 'true' && steps.resolve_release.outputs.released == 'true' && inputs.synthesis-failure-issue == 'true' && steps.synthesis_result.outputs.succeeded == 'true'
