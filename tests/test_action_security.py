@@ -6,7 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ACTION_PATH = REPO_ROOT / "action.yml"
-RUN_DECLARATION_PATTERN = re.compile(r"^\s*run:\s*(.*)$")
+RUN_DECLARATION_PATTERN = re.compile(r"^(?:\s*-\s+|\s+)run:\s*(.*)$")
 
 
 def _run_block_violations(forbidden_pattern: re.Pattern[str]) -> list[tuple[int, str]]:
