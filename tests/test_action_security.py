@@ -53,3 +53,13 @@ def test_action_run_blocks_do_not_inline_step_output_expressions() -> None:
 def test_action_run_blocks_do_not_inline_github_context_expressions() -> None:
     violations = _run_block_violations(re.compile(r"\${{\s*github\."))
     assert not violations, f"inline github expressions in run blocks: {violations}"
+
+
+def test_floating_tag_update_runs_after_synthesis_and_gates_on_required_success() -> None:
+    action_text = ACTION_PATH.read_text(encoding="utf-8")
+
+    summarize_index = action_text.index("- name: Summarize synthesis status")
+    floating_index = action_text.index("- name: Update floating major tag")
+    assert floating_index > summarize_index
+
+    assert "steps.synthesis_result.outputs.succeeded == 'true'" in action_text
