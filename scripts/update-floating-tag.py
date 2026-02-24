@@ -9,8 +9,8 @@ import sys
 
 
 def parse_major_tag(release_tag: str) -> str:
-    """Extract 'vN' from a semver tag like 'v1.2.3' or '1.2.3'."""
-    match = re.match(r"^v?(\d+)\.\d+\.\d+", release_tag)
+    """Extract 'vN' from stable semver tags like 'v1.2.3' or '1.2.3'."""
+    match = re.match(r"^v?(\d+)\.\d+\.\d+$", release_tag)
     if not match:
         raise ValueError(f"invalid semver tag: {release_tag}")
     return f"v{match.group(1)}"

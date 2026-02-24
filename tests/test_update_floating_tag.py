@@ -22,8 +22,9 @@ class TestParseMajorTag:
     def test_without_v_prefix(self):
         assert update_floating_tag.parse_major_tag("1.2.3") == "v1"
 
-    def test_prerelease_suffix_ignored(self):
-        assert update_floating_tag.parse_major_tag("v2.0.0-beta.1") == "v2"
+    def test_prerelease_tag_raises(self):
+        with pytest.raises(ValueError, match="invalid semver tag"):
+            update_floating_tag.parse_major_tag("v2.0.0-beta.1")
 
     def test_invalid_tag_raises(self):
         with pytest.raises(ValueError, match="invalid semver tag"):
