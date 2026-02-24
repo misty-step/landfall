@@ -22,8 +22,8 @@ class TestParseMajorTag:
     def test_without_v_prefix(self):
         assert update_floating_tag.parse_major_tag("1.2.3") == "v1"
 
-    def test_prerelease_suffix_ignored(self):
-        assert update_floating_tag.parse_major_tag("v2.0.0-beta.1") == "v2"
+    def test_prerelease_tag_returns_none(self):
+        assert update_floating_tag.parse_major_tag("v2.0.0-beta.1") is None
 
     def test_invalid_tag_raises(self):
         with pytest.raises(ValueError, match="invalid semver tag"):
@@ -47,6 +47,12 @@ class TestMain:
         with pytest.raises(SystemExit) as exc_info:
             update_floating_tag.main(["--release-tag", "bad"])
         assert exc_info.value.code == 1
+
+    def test_prerelease_tag_exits_zero_without_output(self, capsys):
+        update_floating_tag.main(["--release-tag", "v2.0.0-beta.1"])
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
 
     def test_missing_arg_exits(self):
         with pytest.raises(SystemExit):
