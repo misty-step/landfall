@@ -14,7 +14,7 @@ Automated release pipeline GitHub Action — semantic-release + LLM synthesis �
 - Distribution channels: GitHub Release, webhook, Slack Block Kit, RSS
 - Fallback chains: primary model → fallback models → graceful degradation
 
-**Current Focus:** DX hardening — clearer errors when LLM config is wrong, better onboarding, polish before pushing adoption.
+**Current Focus:** Release integrity, contract validation, and consumer adoption after clearing the February backlog.
 
 ## Domain Glossary
 
@@ -26,23 +26,23 @@ Automated release pipeline GitHub Action — semantic-release + LLM synthesis �
 | floating tag | Major version alias tag (e.g., `v1`) that points to latest release |
 | changelog-source | Where synthesis pulls its input: `auto`, `changelog`, `release-body`, `prs` |
 | audience | Built-in prompt variant: `general`, `developer`, `end-user`, `enterprise` |
-| synthesis-required | If `true`, fail the action when synthesis fails (strict mode) |
+| synthesis-required | If `true`, fail the action when synthesis or publication policy fails |
 | preflight check | Pre-semantic-release validation: tag history integrity, config detection |
 | notes artifact | Output file written by write-artifacts.py (MD/HTML/text/JSON) |
 | RUNNER_TEMP | GitHub Actions temp dir; all intermediate files live here |
 
 ## Active Focus
 
-- **Milestone:** Now: Current Sprint
-- **Key Issues:** #88 (LLM config mismatch fail-fast), #90 (tagFormat preflight)
-- **Theme:** Developer experience — better errors, faster onboarding, easier debugging
+- **Milestone:** Post-backlog reset
+- **Backlog source:** `backlog.d/`
+- **Theme:** Make Landfall trustworthy as reusable infrastructure: self-validating docs/contracts, explicit release integrity policy, live consumer replay, and lower-friction ecosystem adoption.
 
 ## Quality Bar
 
 - [ ] LLM synthesis produces valid section-headed markdown (no raw commit lists)
 - [ ] All failure modes emit clear, actionable `::warning::` messages
 - [ ] Tests cover both the happy path and every failure branch
-- [ ] Action completes even when synthesis fails — release must never be blocked
+- [ ] Default action mode publishes the release even when synthesis fails; `synthesis-required` makes synthesis and publication policy failures explicit blockers
 - [ ] No shell injection vectors in `run:` blocks (use `env:` for all inputs)
 - [ ] Python scripts handle all edge cases without crashing CI
 
@@ -61,11 +61,11 @@ run: python script.py --key "${API_KEY}"                  # GOOD
 
 ### Output Writing
 ```bash
-# Multi-line outputs use heredoc delimiter
+# Multi-line outputs use a collision-resistant heredoc delimiter
 {
-  echo "notes<<LANDFALL_NOTES_EOF"
+  echo "notes<<${delimiter}"
   echo "${notes}"
-  echo "LANDFALL_NOTES_EOF"
+  echo "${delimiter}"
 } >> "${GITHUB_OUTPUT}"
 ```
 

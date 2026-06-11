@@ -139,6 +139,11 @@ def check_version_sync():
 
 
 @pytest.fixture(scope="session")
+def check_action_contract():
+    return load_script_module("landfall_check_action_contract", "scripts/check-action-contract.py")
+
+
+@pytest.fixture(scope="session")
 def report_synthesis_failure():
     return load_script_module(
         "landfall_report_synthesis_failure",
@@ -164,3 +169,13 @@ def preflight_tags():
     mod = load_script_module("landfall_preflight_tags", "scripts/preflight-tags.py")
     sys.modules["landfall_preflight_tags"] = mod
     return mod
+
+
+@pytest.fixture(scope="session")
+def release_policy():
+    return load_script_module("landfall_release_policy", "scripts/release-policy.py")
+
+
+@pytest.fixture(scope="session")
+def fetch_release_body():
+    return load_script_module("landfall_fetch_release_body", "scripts/fetch-release-body.py")
