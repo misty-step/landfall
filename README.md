@@ -89,6 +89,8 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `product-description` | No | `""` | One-line product description injected into the synthesis prompt as `{{PRODUCT_CONTEXT}}`. |
 | `voice-guide` | No | `""` | Tone/style guidance injected into the synthesis prompt as `{{VOICE_GUIDE}}`. |
 | `changelog-source` | No | `auto` | Technical source for synthesis. `auto` tries `CHANGELOG.md`, then release body, then merged PR extraction. Or force: `changelog`, `release-body`, `prs`. |
+| `healthcheck` | No | `false` | Validate LLM API key with a minimal probe request before synthesis. |
+| `floating-tags` | No | `false` | Update floating major version tags (e.g., `v1`) after release. |
 | `webhook-url` | No | `""` | Webhook endpoint URL. On synthesis success, POST a JSON payload with version, notes (markdown/HTML/plaintext), and release URL. |
 | `webhook-secret` | No | `""` | HMAC-SHA256 secret for signing webhook payloads (X-Signature-256 header). Optional. |
 | `slack-webhook-url` | No | `""` | Slack Incoming Webhook URL. On synthesis success, POST a Block Kit message with version, categorized notes, and release link. |
@@ -296,6 +298,14 @@ This repository keeps `package.json` and `pyproject.toml` versions aligned to re
 - `.releaserc.json` runs `scripts/update-version-metadata.py` in semantic-release `prepare`.
 - The release commit includes `CHANGELOG.md`, `package.json`, and `pyproject.toml`.
 - CI runs `python scripts/check-version-sync.py` to fail fast when metadata drifts from the latest semver tag.
+
+### Action Contract Validation (Landfall Repo)
+
+The public action contract is checked from `action.yml`:
+
+- `python scripts/check-action-contract.py` fails when the README inputs table diverges from action metadata.
+- The same command scans examples, project docs, and release workflows for unknown or deprecated Landfall inputs.
+- CI runs the contract check before tests so stale consumer instructions fail fast.
 
 ## Custom semantic-release Config
 

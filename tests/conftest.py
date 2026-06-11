@@ -139,6 +139,11 @@ def check_version_sync():
 
 
 @pytest.fixture(scope="session")
+def check_action_contract():
+    return load_script_module("landfall_check_action_contract", "scripts/check-action-contract.py")
+
+
+@pytest.fixture(scope="session")
 def report_synthesis_failure():
     return load_script_module(
         "landfall_report_synthesis_failure",

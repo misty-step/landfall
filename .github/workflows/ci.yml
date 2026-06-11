@@ -59,6 +59,10 @@ jobs:
           fi
           python scripts/check-version-sync.py --reference "${tag_ref}"
 
+      - name: Verify public action contract
+        shell: bash
+        run: python scripts/check-action-contract.py
+
       - name: Run tests
         shell: bash
         run: python -m pytest -q tests/
