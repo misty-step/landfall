@@ -79,7 +79,7 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `synthesis` | No | `true` | If `true`, generate and prepend user-facing notes. |
 | `synthesis-required` | No | `false` | If `true`, fail the action when synthesis/update fails (after failure reporting). |
 | `synthesis-strict` | No | `false` | Deprecated alias for `synthesis-required`. |
-| `synthesis-failure-issue` | No | `true` | If `true`, create a GitHub issue in the consuming repository when synthesis/update fails. |
+| `synthesis-failure-issue` | No | `false` | If `true`, create a GitHub issue in the consuming repository when synthesis/update fails. |
 | `notes-output-file` | No | `""` | Write synthesized notes to this file path. Use `{version}` placeholder for the release tag (e.g., `docs/releases/{version}.md`). |
 | `notes-output-text-file` | No | `""` | Write synthesized notes as plaintext to this file path. Use `{version}` placeholder (e.g., `docs/releases/{version}.txt`). |
 | `notes-output-html-file` | No | `""` | Write synthesized notes as an HTML fragment to this file path. Use `{version}` placeholder (e.g., `docs/releases/{version}.html`). |
@@ -89,6 +89,8 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `product-description` | No | `""` | One-line product description injected into the synthesis prompt as `{{PRODUCT_CONTEXT}}`. |
 | `voice-guide` | No | `""` | Tone/style guidance injected into the synthesis prompt as `{{VOICE_GUIDE}}`. |
 | `changelog-source` | No | `auto` | Technical source for synthesis. `auto` tries `CHANGELOG.md`, then release body, then merged PR extraction. Or force: `changelog`, `release-body`, `prs`. |
+| `healthcheck` | No | `false` | Validate LLM API key with a minimal probe request before synthesis. |
+| `floating-tags` | No | `false` | Update floating major version tags (e.g., `v1`) after release. |
 | `webhook-url` | No | `""` | Webhook endpoint URL. On synthesis success, POST a JSON payload with version, notes (markdown/HTML/plaintext), and release URL. |
 | `webhook-secret` | No | `""` | HMAC-SHA256 secret for signing webhook payloads (X-Signature-256 header). Optional. |
 | `slack-webhook-url` | No | `""` | Slack Incoming Webhook URL. On synthesis success, POST a Block Kit message with version, categorized notes, and release link. |
@@ -108,6 +110,22 @@ Landfall is language-agnostic. Your repo does not need `package.json` or Node.js
 | `release-notes` | Synthesized user-facing release notes markdown. Empty if synthesis was skipped or failed. |
 | `webhook-sent` | `true` when the generic webhook notification was sent successfully. |
 | `slack-sent` | `true` when the Slack notification was sent successfully. |
+
+## Release Integrity Policy
+
+Landfall separates the semantic-release publish step from its owned synthesis and
+distribution steps:
+
+- `synthesis-required: "true"` treats failed or degraded synthesis as a hard
+  failure and blocks release-body mutation and floating-tag movement.
+- Optional synthesis still allows the release to exist, but partial Landfall
+  failures are reported through `synthesis-succeeded: false` and protected
+  outputs such as floating tags do not move unless synthesis and release-body
+  update both succeed.
+- External GitHub and LLM calls made by Landfall-owned scripts use bounded
+  timeouts and retry policy.
+- Generated `release-notes` output uses a collision-resistant GitHub output
+  delimiter so synthesized content cannot truncate the output payload.
 
 ## Provider Examples
 
@@ -280,6 +298,14 @@ This repository keeps `package.json` and `pyproject.toml` versions aligned to re
 - `.releaserc.json` runs `scripts/update-version-metadata.py` in semantic-release `prepare`.
 - The release commit includes `CHANGELOG.md`, `package.json`, and `pyproject.toml`.
 - CI runs `python scripts/check-version-sync.py` to fail fast when metadata drifts from the latest semver tag.
+
+### Action Contract Validation (Landfall Repo)
+
+The public action contract is checked from `action.yml`:
+
+- `python scripts/check-action-contract.py` fails when the README inputs table diverges from action metadata.
+- The same command scans examples, project docs, and release workflows for unknown or deprecated Landfall inputs.
+- CI runs the contract check before tests so stale consumer instructions fail fast.
 
 ## Custom semantic-release Config
 

@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install requests pytest ruff check-jsonschema
+          python -m pip install "requests==2.34.2" pytest ruff check-jsonschema
 
       - name: Lint Python
         shell: bash
@@ -59,9 +59,17 @@ jobs:
           fi
           python scripts/check-version-sync.py --reference "${tag_ref}"
 
+      - name: Verify public action contract
+        shell: bash
+        run: python scripts/check-action-contract.py
+
       - name: Run tests
         shell: bash
         run: python -m pytest -q tests/
+
+      - name: Replay release integrity policy
+        shell: bash
+        run: python scripts/replay-action.py --evidence-dir .landfall/replay
 
       - name: Validate action metadata
         shell: bash
