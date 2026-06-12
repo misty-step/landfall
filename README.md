@@ -328,34 +328,36 @@ The `release-notes` output is still available for custom notifications:
 
 ## Dogfooding Landfall
 
-If Landfall releases itself, use local action code in `.github/workflows/release.yml`:
+Landfall releases itself without pushing generated release commits directly to
+protected `master`. The repository workflow has two phases:
 
-```yaml
-- name: Run Landfall
-  id: landfall
-  uses: ./
-  with:
-    github-token: ${{ secrets.GH_RELEASE_TOKEN }}
-    llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
-    synthesis-required: "true"
-    floating-tags: "true"
+- `prepare-release-pr` runs `./dist/landfall prepare-self-release`, updates
+  `CHANGELOG.md`, `package.json`, `crates/landfall/Cargo.toml`, and
+  `Cargo.lock` on `landfall/self-release`, then opens or updates a release PR.
+  That PR must pass the normal `merge-gate` before it can land.
+- `publish-landed-release` runs on `master` pushes. It publishes a GitHub
+  Release only when landed metadata is ahead of the latest semver tag, then
+  runs Landfall in `synthesis-only` mode to update the release body and floating
+  major tag.
+
+The local replay oracle for this path is:
+
+```bash
+dist/landfall replay-action \
+  --evidence-dir .landfall/replay \
+  --scenario self_release_pr_path
 ```
-
-This keeps release + `v1` floating-tag management inside Landfall (no manual tag step in workflow).
 
 ### Metadata Version Sync (Landfall Repo)
 
 This repository keeps `package.json` and the Rust crate version aligned to release tags:
 
-- `.releaserc.json` runs `./dist/landfall update-version-metadata` in semantic-release `prepare`.
+- `prepare-self-release` updates `package.json`,
+  `crates/landfall/Cargo.toml`, and `Cargo.lock` before opening the release PR.
+- `.releaserc.json` still runs `./dist/landfall update-version-metadata` for
+  consumers using full semantic-release mode.
 - The release commit includes `CHANGELOG.md`, `package.json`, `crates/landfall/Cargo.toml`, and `Cargo.lock`.
 - CI runs `cargo run --locked -- check-version-sync` to fail fast when metadata drifts from the latest semver tag.
-
-Landfall's own release workflow is manual because `master` is protected by the
-required `merge-gate` check. Automatic self-release would need a PR-based
-release-commit path before it can safely publish generated changelog and version
-metadata back to `master`; manual dispatch should be used only after that path
-or a bypass-capable release token exists.
 
 ### Action Contract Validation (Landfall Repo)
 

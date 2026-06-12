@@ -95,7 +95,8 @@ jobs:
               --scenario consumer_synthesis_only_success \
               --scenario consumer_degraded_required_fails \
               --scenario consumer_release_update_failure \
-              --scenario consumer_floating_tag_behavior
+              --scenario consumer_floating_tag_behavior \
+              --scenario self_release_pr_path
           else
             dist/landfall replay-action --evidence-dir .landfall/replay
           fi
