@@ -55,6 +55,8 @@ enum Commands {
     ReplayAction(ReplayArgs),
     Backfill(BackfillArgs),
     Setup(SetupArgs),
+    PrepareSelfRelease(PrepareSelfReleaseArgs),
+    PublishSelfRelease(PublishSelfReleaseArgs),
 }
 
 #[derive(Args)]
@@ -373,6 +375,70 @@ struct SetupArgs {
     output_dir: String,
 }
 
+#[derive(Args)]
+struct PrepareSelfReleaseArgs {
+    #[arg(long = "repo-root", default_value = ".")]
+    repo_root: PathBuf,
+    #[arg(long, default_value = "misty-step/landfall")]
+    repository: String,
+    #[arg(long = "release-branch", default_value = "landfall/self-release")]
+    release_branch: String,
+    #[arg(long = "github-output", default_value = "")]
+    github_output: String,
+}
+
+#[derive(Args)]
+struct PublishSelfReleaseArgs {
+    #[arg(long = "repo-root", default_value = ".")]
+    repo_root: PathBuf,
+    #[arg(long = "github-token")]
+    github_token: String,
+    #[arg(long)]
+    repository: String,
+    #[arg(long = "target-sha")]
+    target_sha: String,
+    #[arg(long = "github-output", default_value = "")]
+    github_output: String,
+    #[arg(long = "api-base-url", default_value = "https://api.github.com")]
+    api_base_url: String,
+}
+
+#[derive(Serialize)]
+struct SelfReleasePlan {
+    released: bool,
+    reason: String,
+    latest_version: String,
+    next_version: String,
+    release_tag: String,
+    release_branch: String,
+    pull_request_title: String,
+    commit_message: String,
+    changed_files: Vec<String>,
+    changelog: String,
+    commits: Vec<SelfReleaseCommit>,
+}
+
+#[derive(Clone, Serialize)]
+struct SelfReleaseCommit {
+    hash: String,
+    short_hash: String,
+    subject: String,
+    category: String,
+    scope: String,
+    description: String,
+    breaking: bool,
+}
+
+#[derive(Serialize)]
+struct SelfReleasePublish {
+    published: bool,
+    reason: String,
+    latest_version: String,
+    version: String,
+    release_tag: String,
+    release_url: String,
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
@@ -412,6 +478,8 @@ fn run() -> Result<()> {
             Ok(())
         }
         Commands::Setup(args) => setup(args),
+        Commands::PrepareSelfRelease(args) => prepare_self_release(args),
+        Commands::PublishSelfRelease(args) => publish_self_release(args),
     }
 }
 
@@ -981,6 +1049,428 @@ jobs:
           changelog-source: auto
 "#
     .to_string()
+}
+
+fn prepare_self_release(args: PrepareSelfReleaseArgs) -> Result<()> {
+    validate_repo(&args.repository)?;
+    let latest_version = latest_repo_version(&args.repo_root)?;
+    let package_version = package_version(&args.repo_root)?;
+    if semver_key(&package_version)? > semver_key(&latest_version)? {
+        let plan = SelfReleasePlan {
+            released: false,
+            reason: format!(
+                "metadata version {package_version} is ahead of latest tag {latest_version}; waiting for publish"
+            ),
+            latest_version,
+            next_version: package_version,
+            release_tag: String::new(),
+            release_branch: args.release_branch,
+            pull_request_title: String::new(),
+            commit_message: String::new(),
+            changed_files: Vec::new(),
+            changelog: String::new(),
+            commits: Vec::new(),
+        };
+        return emit_self_release_plan(&plan, &args.github_output);
+    }
+
+    let commits = self_release_commits(&args.repo_root, &format!("v{latest_version}"))?;
+    let bump = release_bump(&commits);
+    let Some(bump) = bump else {
+        let plan = SelfReleasePlan {
+            released: false,
+            reason: "no release-worthy conventional commits since latest tag".into(),
+            latest_version,
+            next_version: package_version,
+            release_tag: String::new(),
+            release_branch: args.release_branch,
+            pull_request_title: String::new(),
+            commit_message: String::new(),
+            changed_files: Vec::new(),
+            changelog: String::new(),
+            commits,
+        };
+        return emit_self_release_plan(&plan, &args.github_output);
+    };
+
+    let next_version = bump_version(&latest_version, bump)?;
+    let release_tag = format!("v{next_version}");
+    let changelog = render_self_release_changelog(
+        &args.repository,
+        &latest_version,
+        &next_version,
+        &release_tag,
+        &commits,
+    );
+    prepend_changelog(&args.repo_root.join("CHANGELOG.md"), &changelog)?;
+    update_version_metadata(UpdateVersionArgs {
+        version: next_version.clone(),
+        repo_root: args.repo_root.clone(),
+    })?;
+    update_lock_package_version(
+        &args.repo_root.join("Cargo.lock"),
+        "landfall",
+        &next_version,
+    )?;
+
+    let plan = SelfReleasePlan {
+        released: true,
+        reason: "prepared release pull request changes".into(),
+        latest_version,
+        next_version: next_version.clone(),
+        release_tag,
+        release_branch: args.release_branch,
+        pull_request_title: format!("chore(release): {next_version}"),
+        commit_message: format!("chore(release): {next_version}"),
+        changed_files: vec![
+            "CHANGELOG.md".into(),
+            "package.json".into(),
+            "crates/landfall/Cargo.toml".into(),
+            "Cargo.lock".into(),
+        ],
+        changelog,
+        commits,
+    };
+    emit_self_release_plan(&plan, &args.github_output)
+}
+
+fn emit_self_release_plan(plan: &SelfReleasePlan, github_output: &str) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(plan)?);
+    if !github_output.is_empty() {
+        write_outputs(
+            Path::new(github_output),
+            &[
+                ("released", plan.released.to_string()),
+                ("reason", sanitize_text(&plan.reason)),
+                ("release_tag", plan.release_tag.clone()),
+                ("next_version", plan.next_version.clone()),
+                ("release_branch", plan.release_branch.clone()),
+                ("pull_request_title", plan.pull_request_title.clone()),
+                ("commit_message", plan.commit_message.clone()),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn publish_self_release(args: PublishSelfReleaseArgs) -> Result<()> {
+    validate_repo(&args.repository)?;
+    validate_nonblank(&args.target_sha, "target-sha")?;
+    let latest_version = latest_repo_version(&args.repo_root)?;
+    let package_version = package_version(&args.repo_root)?;
+    let cargo = cargo_version(&args.repo_root.join("crates/landfall/Cargo.toml"))
+        .ok_or("crates/landfall/Cargo.toml missing package version")?;
+    if cargo != package_version {
+        return Err(format!(
+            "package.json has {package_version}, crates/landfall/Cargo.toml has {cargo}"
+        )
+        .into());
+    }
+    if semver_key(&package_version)? <= semver_key(&latest_version)? {
+        let publish = SelfReleasePublish {
+            published: false,
+            reason: "metadata is not ahead of latest release tag".into(),
+            latest_version,
+            version: package_version,
+            release_tag: String::new(),
+            release_url: String::new(),
+        };
+        return emit_self_release_publish(&publish, &args.github_output);
+    }
+
+    let release_tag = format!("v{package_version}");
+    let existing_url = github_release_url(&args.api_base_url, &args.repository, &release_tag);
+    let existing = curl_json("GET", &existing_url, Some(&args.github_token), None)?;
+    if (200..300).contains(&existing.status) {
+        let value: Value = serde_json::from_str(&existing.body)?;
+        let publish = SelfReleasePublish {
+            published: false,
+            reason: "release already exists".into(),
+            latest_version,
+            version: package_version,
+            release_tag,
+            release_url: value["html_url"].as_str().unwrap_or("").to_string(),
+        };
+        return emit_self_release_publish(&publish, &args.github_output);
+    }
+    if existing.status != 404 {
+        return Err(format!("GitHub release lookup failed with HTTP {}", existing.status).into());
+    }
+
+    let body = changelog_section(&args.repo_root.join("CHANGELOG.md"), &package_version)?;
+    let create_url = format!(
+        "{}/repos/{}/releases",
+        args.api_base_url.trim_end_matches('/'),
+        args.repository
+    );
+    let response = curl_json(
+        "POST",
+        &create_url,
+        Some(&args.github_token),
+        Some(&json!({
+            "tag_name": release_tag,
+            "target_commitish": args.target_sha,
+            "name": release_tag,
+            "body": body,
+            "draft": false,
+            "prerelease": false
+        })),
+    )?;
+    if !(200..300).contains(&response.status) {
+        return Err(format!(
+            "GitHub release creation failed with HTTP {}",
+            response.status
+        )
+        .into());
+    }
+    let value: Value = serde_json::from_str(&response.body)?;
+    let publish = SelfReleasePublish {
+        published: true,
+        reason: "published release from landed release pull request".into(),
+        latest_version,
+        version: package_version,
+        release_tag,
+        release_url: value["html_url"].as_str().unwrap_or("").to_string(),
+    };
+    emit_self_release_publish(&publish, &args.github_output)
+}
+
+fn emit_self_release_publish(publish: &SelfReleasePublish, github_output: &str) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(publish)?);
+    if !github_output.is_empty() {
+        write_outputs(
+            Path::new(github_output),
+            &[
+                ("published", publish.published.to_string()),
+                ("reason", sanitize_text(&publish.reason)),
+                ("release_tag", publish.release_tag.clone()),
+                ("release_url", publish.release_url.clone()),
+                ("version", publish.version.clone()),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+enum ReleaseBump {
+    Patch,
+    Minor,
+    Major,
+}
+
+fn latest_repo_version(repo_root: &Path) -> Result<String> {
+    let tags = run_ok("git", ["tag", "--merged", "HEAD"], repo_root)?;
+    latest_semver_version(tags.lines()).ok_or("no semver tags found".into())
+}
+
+fn package_version(repo_root: &Path) -> Result<String> {
+    let package: Value =
+        serde_json::from_str(&fs::read_to_string(repo_root.join("package.json"))?)?;
+    package["version"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or("package.json missing version".into())
+}
+
+fn self_release_commits(repo_root: &Path, tag: &str) -> Result<Vec<SelfReleaseCommit>> {
+    let range = format!("{tag}..HEAD");
+    let log = run_ok(
+        "git",
+        ["log", "--reverse", "--format=%H%x00%s%x00%b%x1e", &range],
+        repo_root,
+    )?;
+    let mut commits = Vec::new();
+    for record in log.split('\x1e') {
+        let record = record.trim_matches('\n');
+        if record.trim().is_empty() {
+            continue;
+        }
+        let mut parts = record.splitn(3, '\0');
+        let hash = parts.next().unwrap_or("").trim().to_string();
+        let subject = parts.next().unwrap_or("").trim().to_string();
+        let body = parts.next().unwrap_or("").trim().to_string();
+        if subject.starts_with("chore(release):") {
+            continue;
+        }
+        if let Some(commit) = classify_release_commit(&hash, &subject, &body) {
+            commits.push(commit);
+        }
+    }
+    Ok(commits)
+}
+
+fn classify_release_commit(hash: &str, subject: &str, body: &str) -> Option<SelfReleaseCommit> {
+    let re = Regex::new(r"^([A-Za-z]+)(?:\(([^)]+)\))?(!)?: (.+)$").unwrap();
+    let caps = re.captures(subject)?;
+    let kind = caps.get(1)?.as_str().to_ascii_lowercase();
+    let scope = caps.get(2).map(|m| m.as_str()).unwrap_or("").to_string();
+    let breaking = caps.get(3).is_some() || body.contains("BREAKING CHANGE:");
+    let category = if breaking {
+        "breaking"
+    } else {
+        match kind.as_str() {
+            "feat" => "features",
+            "fix" => "fixes",
+            "perf" => "performance",
+            _ => return None,
+        }
+    };
+    Some(SelfReleaseCommit {
+        hash: hash.to_string(),
+        short_hash: hash.chars().take(7).collect(),
+        subject: subject.to_string(),
+        category: category.to_string(),
+        scope,
+        description: caps.get(4)?.as_str().to_string(),
+        breaking,
+    })
+}
+
+fn release_bump(commits: &[SelfReleaseCommit]) -> Option<ReleaseBump> {
+    let mut bump: Option<ReleaseBump> = None;
+    for commit in commits {
+        let candidate = if commit.breaking {
+            ReleaseBump::Major
+        } else {
+            match commit.category.as_str() {
+                "features" => ReleaseBump::Minor,
+                "fixes" | "performance" => ReleaseBump::Patch,
+                _ => continue,
+            }
+        };
+        bump = Some(bump.map_or(candidate, |current| current.max(candidate)));
+    }
+    bump
+}
+
+fn bump_version(version: &str, bump: ReleaseBump) -> Result<String> {
+    let (major, minor, patch) = semver_key(version)?;
+    Ok(match bump {
+        ReleaseBump::Major => format!("{}.0.0", major + 1),
+        ReleaseBump::Minor => format!("{major}.{}.0", minor + 1),
+        ReleaseBump::Patch => format!("{major}.{minor}.{}", patch + 1),
+    })
+}
+
+fn semver_key(version: &str) -> Result<(u64, u64, u64)> {
+    let (_, normalized) = semver_from_tag(version).ok_or_else(|| {
+        format!(
+            "invalid semver version {}",
+            version.trim().trim_start_matches('v')
+        )
+    })?;
+    let mut parts = normalized.split('.');
+    Ok((
+        parts.next().unwrap_or("0").parse()?,
+        parts.next().unwrap_or("0").parse()?,
+        parts.next().unwrap_or("0").parse()?,
+    ))
+}
+
+fn render_self_release_changelog(
+    repository: &str,
+    latest_version: &str,
+    next_version: &str,
+    release_tag: &str,
+    commits: &[SelfReleaseCommit],
+) -> String {
+    let mut out = format!(
+        "# [{next_version}](https://github.com/{repository}/compare/v{latest_version}...{release_tag}) ({})\n\n",
+        Utc::now().format("%Y-%m-%d")
+    );
+    let sections = [
+        ("breaking", "### BREAKING CHANGES"),
+        ("features", "### Features"),
+        ("fixes", "### Bug Fixes"),
+        ("performance", "### Performance Improvements"),
+    ];
+    for (category, heading) in sections {
+        let entries: Vec<_> = commits
+            .iter()
+            .filter(|commit| commit.category == category)
+            .collect();
+        if entries.is_empty() {
+            continue;
+        }
+        out.push_str(heading);
+        out.push_str("\n\n");
+        for commit in entries {
+            let scope = if commit.scope.is_empty() {
+                String::new()
+            } else {
+                format!("**{}:** ", commit.scope)
+            };
+            out.push_str(&format!(
+                "* {scope}{} ([{}](https://github.com/{repository}/commit/{}))\n",
+                commit.description, commit.short_hash, commit.hash
+            ));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn prepend_changelog(path: &Path, entry: &str) -> Result<()> {
+    let existing = fs::read_to_string(path).unwrap_or_default();
+    fs::write(
+        path,
+        format!("{}\n{}", entry.trim_end(), existing.trim_start()),
+    )?;
+    Ok(())
+}
+
+fn update_lock_package_version(path: &Path, package_name: &str, version: &str) -> Result<()> {
+    let text = fs::read_to_string(path)?;
+    let mut in_package = false;
+    let mut saw_name = false;
+    let mut replaced = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if line.trim() == "[[package]]" {
+            in_package = true;
+            saw_name = false;
+        } else if in_package && line.starts_with("name = ") {
+            saw_name = line == format!("name = \"{package_name}\"");
+        } else if in_package && saw_name && line.starts_with("version = ") {
+            lines.push(format!("version = \"{version}\""));
+            in_package = false;
+            replaced = true;
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    if !replaced {
+        return Err(format!("Cargo.lock package {package_name} not found").into());
+    }
+    fs::write(path, lines.join("\n") + "\n")?;
+    Ok(())
+}
+
+fn changelog_section(path: &Path, version: &str) -> Result<String> {
+    let text = fs::read_to_string(path)?;
+    let marker = format!("[{version}]");
+    let mut started = false;
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if !started {
+            if line.contains(&marker) {
+                started = true;
+                lines.push(line.to_string());
+            }
+            continue;
+        }
+        if line.starts_with('#') && line.contains('[') {
+            break;
+        }
+        lines.push(line.to_string());
+    }
+    let section = lines.join("\n").trim().to_string();
+    if section.is_empty() {
+        Err(format!("CHANGELOG.md missing section for {version}").into())
+    } else {
+        Ok(section)
+    }
 }
 
 #[derive(Debug)]
@@ -2395,6 +2885,10 @@ fn scenario_map() -> BTreeMap<String, Scenario> {
         scenario_consumer_synthesis_only_success,
     );
     map.insert(
+        "self_release_pr_path".to_string(),
+        scenario_self_release_pr_path,
+    );
+    map.insert(
         "synthesis-only-success".to_string(),
         scenario_consumer_synthesis_only_success,
     );
@@ -2429,6 +2923,7 @@ fn canonical_scenarios() -> Vec<&'static str> {
         "consumer_full_mode_success",
         "consumer_release_update_failure",
         "consumer_synthesis_only_success",
+        "self_release_pr_path",
         "publication_degraded_optional",
         "publication_degraded_required",
         "summary_artifact_failed",
@@ -2803,6 +3298,148 @@ fn scenario_consumer_floating_tag_behavior(tmp_root: &Path) -> Result<Value> {
     Ok(json!({"stable": stable_tag, "prerelease": pre_tag, "tags": git_tags(&repo)?}))
 }
 
+fn scenario_self_release_pr_path(tmp_root: &Path) -> Result<Value> {
+    let repo = tmp_root.join("self-release-pr");
+    init_self_release_fixture(&repo)?;
+    let prepare_output = temp_file("landfall-self-release-prepare")?;
+    let prepare = Command::new(current_exe())
+        .args([
+            "prepare-self-release",
+            "--repo-root",
+            repo.to_str().unwrap(),
+            "--repository",
+            "owner/repo",
+            "--release-branch",
+            "landfall/self-release",
+            "--github-output",
+        ])
+        .arg(&prepare_output)
+        .output()?;
+    if !prepare.status.success() {
+        return Err(String::from_utf8_lossy(&prepare.stderr).to_string().into());
+    }
+    let prepare_outputs = parse_outputs(&prepare_output)?;
+    if prepare_outputs.get("released").map(String::as_str) != Some("true") {
+        return Err("prepare-self-release did not mark a release PR ready".into());
+    }
+    assert_file_contains(&repo.join("package.json"), r#""version": "1.1.0""#)?;
+    assert_file_contains(
+        &repo.join("crates/landfall/Cargo.toml"),
+        r#"version = "1.1.0""#,
+    )?;
+    assert_file_contains(&repo.join("Cargo.lock"), r#"version = "1.1.0""#)?;
+    assert_file_contains(&repo.join("CHANGELOG.md"), "# [1.1.0]")?;
+
+    run_ok("git", ["add", "."], &repo)?;
+    run_ok(
+        "git",
+        ["commit", "-q", "-m", "chore(release): 1.1.0"],
+        &repo,
+    )?;
+    let target_sha = run_ok("git", ["rev-parse", "HEAD"], &repo)?
+        .trim()
+        .to_string();
+    let mut fake = FakeState::default();
+    fake.releases.insert(
+        "v1.0.0".to_string(),
+        json!({"id": 1, "tag_name": "v1.0.0", "body": "old", "html_url": "https://example.invalid/releases/v1.0.0"}),
+    );
+    let server = start_fake_server(fake)?;
+    let publish_output = temp_file("landfall-self-release-publish")?;
+    let publish = Command::new(current_exe())
+        .args([
+            "publish-self-release",
+            "--repo-root",
+            repo.to_str().unwrap(),
+            "--github-token",
+            "token",
+            "--repository",
+            "owner/repo",
+            "--target-sha",
+            &target_sha,
+            "--api-base-url",
+            &server.url,
+            "--github-output",
+        ])
+        .arg(&publish_output)
+        .output()?;
+    if !publish.status.success() {
+        return Err(String::from_utf8_lossy(&publish.stderr).to_string().into());
+    }
+    let publish_outputs = parse_outputs(&publish_output)?;
+    if publish_outputs.get("published").map(String::as_str) != Some("true") {
+        return Err("publish-self-release did not publish the landed release".into());
+    }
+    let state = server.state.lock().unwrap();
+    let created = state
+        .releases
+        .get("v1.1.0")
+        .ok_or("fake GitHub release was not created")?;
+    Ok(json!({
+        "prepare": prepare_outputs,
+        "publish": publish_outputs,
+        "release": created,
+        "requests": state.requests,
+        "target_sha": target_sha,
+    }))
+}
+
+fn assert_file_contains(path: &Path, needle: &str) -> Result<()> {
+    let text = fs::read_to_string(path)?;
+    if text.contains(needle) {
+        Ok(())
+    } else {
+        Err(format!("{} did not contain {needle}", path.display()).into())
+    }
+}
+
+fn init_self_release_fixture(path: &Path) -> Result<()> {
+    fs::create_dir_all(path.join("crates/landfall"))?;
+    run_ok("git", ["init", "-q"], path)?;
+    run_ok("git", ["config", "user.name", "Landfall Replay"], path)?;
+    run_ok(
+        "git",
+        ["config", "user.email", "replay@example.invalid"],
+        path,
+    )?;
+    fs::write(path.join("README.md"), "# Fixture\n")?;
+    fs::write(
+        path.join("package.json"),
+        serde_json::to_string_pretty(&json!({"name": "landfall", "version": "1.0.0"}))? + "\n",
+    )?;
+    fs::write(
+        path.join("crates/landfall/Cargo.toml"),
+        "[package]\nname = \"landfall\"\nversion = \"1.0.0\"\nedition = \"2024\"\n",
+    )?;
+    fs::write(
+        path.join("Cargo.lock"),
+        "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"landfall\"\nversion = \"1.0.0\"\n",
+    )?;
+    fs::write(
+        path.join("CHANGELOG.md"),
+        "## [1.0.0](https://github.com/owner/repo/releases/tag/v1.0.0) (2026-01-01)\n\n### Features\n\n* seed\n",
+    )?;
+    run_ok("git", ["add", "."], path)?;
+    run_ok("git", ["commit", "-q", "-m", "chore: seed release"], path)?;
+    run_ok("git", ["tag", "v1.0.0"], path)?;
+    fs::write(
+        path.join("README.md"),
+        "# Fixture\n\nRelease PR protected branch flow.\n",
+    )?;
+    run_ok("git", ["add", "README.md"], path)?;
+    run_ok(
+        "git",
+        [
+            "commit",
+            "-q",
+            "-m",
+            "feat(release): add protected branch self release",
+        ],
+        path,
+    )?;
+    Ok(())
+}
+
 struct FakeServer {
     url: String,
     state: Arc<Mutex<FakeState>>,
@@ -2870,6 +3507,27 @@ fn start_fake_server(mut state: FakeState) -> Result<FakeServer> {
                         found
                             .map(|release| json_response(200, release))
                             .unwrap_or_else(|| json_response(404, json!({"message": "Not Found"})))
+                    }
+                }
+                (Method::Post, url) if url.contains("/repos/") && url.ends_with("/releases") => {
+                    let payload: Value = serde_json::from_str(&body).unwrap_or_else(|_| json!({}));
+                    let tag = payload["tag_name"].as_str().unwrap_or("").to_string();
+                    if tag.is_empty() {
+                        json_response(422, json!({"message": "tag_name is required"}))
+                    } else if state.releases.contains_key(&tag) {
+                        json_response(422, json!({"message": "already_exists"}))
+                    } else {
+                        let id = state.releases.len() as i64 + 1;
+                        let release = json!({
+                            "id": id,
+                            "tag_name": tag,
+                            "target_commitish": payload["target_commitish"],
+                            "name": payload["name"],
+                            "body": payload["body"],
+                            "html_url": format!("https://example.invalid/releases/{}", payload["tag_name"].as_str().unwrap_or(""))
+                        });
+                        state.releases.insert(tag, release.clone());
+                        json_response(201, release)
                     }
                 }
                 _ => json_response(404, json!({"message": "not found"})),
@@ -3163,6 +3821,50 @@ mod tests {
             let parsed: serde_yaml::Value = serde_yaml::from_str(&candidate.content).unwrap();
             assert!(parsed["jobs"].is_mapping(), "{}", candidate.path);
         }
+    }
+
+    #[test]
+    fn self_release_bump_ignores_non_release_commits() {
+        assert!(classify_release_commit("abcdef0", "docs: update readme", "").is_none());
+    }
+
+    #[test]
+    fn self_release_bump_detects_breaking_major() {
+        let fix = classify_release_commit("abcdef0", "fix(runtime): close leak", "").unwrap();
+        let feat = classify_release_commit("abcdef1", "feat(setup): add analyzer", "").unwrap();
+        let breaking = classify_release_commit("abcdef2", "feat(api)!: rename output", "").unwrap();
+        let bump = release_bump(&[fix, feat, breaking]).unwrap();
+        assert!(matches!(bump, ReleaseBump::Major));
+        assert_eq!(bump_version("1.2.3", bump).unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn changelog_section_extracts_only_requested_version() {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path().join("CHANGELOG.md");
+        fs::write(
+            &path,
+            "# [1.2.0](compare) (2026-06-12)\n\n### Features\n\n* new\n\n## [1.1.0](compare) (2026-06-11)\n\n### Bug Fixes\n\n* old\n",
+        )
+        .unwrap();
+        let section = changelog_section(&path, "1.2.0").unwrap();
+        assert!(section.contains("* new"));
+        assert!(!section.contains("* old"));
+    }
+
+    #[test]
+    fn cargo_lock_version_update_targets_landfall_package_only() {
+        let repo = tempfile::tempdir().unwrap();
+        let path = repo.path().join("Cargo.lock");
+        fs::write(
+            &path,
+            "[[package]]\nname = \"dep\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"landfall\"\nversion = \"1.2.3\"\n",
+        )
+        .unwrap();
+        update_lock_package_version(&path, "landfall", "1.3.0").unwrap();
+        let text = fs::read_to_string(path).unwrap();
+        assert!(text.contains("name = \"dep\"\nversion = \"0.1.0\""));
+        assert!(text.contains("name = \"landfall\"\nversion = \"1.3.0\""));
     }
 
     #[test]
