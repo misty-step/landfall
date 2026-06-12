@@ -1,19 +1,20 @@
 # Build PR-based self-release under branch protection
 
-Priority: P2 · Status: pending · Estimate: L
+Priority: P2 · Status: done · Estimate: L
 
 ## Goal
 Let Landfall dogfood automatic self-release without requiring direct pushes to
 protected `master`.
 
 ## Oracle
-- [ ] A release run can generate `CHANGELOG.md`, `package.json`, and
-      `pyproject.toml` changes on a release branch.
-- [ ] The generated release branch opens or updates a pull request whose checks
+- [x] A release run can generate `CHANGELOG.md`, `package.json`,
+      `crates/landfall/Cargo.toml`, and `Cargo.lock` changes on a release
+      branch.
+- [x] The generated release branch opens or updates a pull request whose checks
       include `merge-gate`.
-- [ ] The workflow publishes the GitHub Release only after the generated release
+- [x] The workflow publishes the GitHub Release only after the generated release
       PR lands.
-- [ ] A replay command proves the protected-branch path without mutating
+- [x] A replay command proves the protected-branch path without mutating
       production releases.
 
 ## Notes
@@ -24,3 +25,21 @@ protected `master`.
 - Current mitigation: Landfall's own release workflow is manual so normal
   `master` pushes do not run a release job that cannot pass under current branch
   protection.
+
+## Delivery
+
+- Added Rust-owned `prepare-self-release` and `publish-self-release` commands.
+  The prepare phase computes the next version from release-worthy conventional
+  commits, prepends `CHANGELOG.md`, updates `package.json`,
+  `crates/landfall/Cargo.toml`, and `Cargo.lock`, and emits GitHub Action
+  outputs for the release PR.
+- Replaced the manual-only release workflow with a two-phase protected-branch
+  flow: `prepare-release-pr` opens/updates `landfall/self-release` through
+  `peter-evans/create-pull-request`, and `publish-landed-release` creates the
+  GitHub Release only when landed metadata is ahead of the latest semver tag.
+- Added the `self_release_pr_path` replay scenario. It creates a disposable repo,
+  proves release PR file generation, commits the release changes as landed PR
+  metadata, then publishes through a fake GitHub Releases API.
+- Verification: `cargo test --locked`, `cargo run --locked --
+  check-action-contract`, `cargo run --locked -- replay-action --evidence-dir
+  .landfall/replay`, checked-in musl binary rebuild/checksum, and `bin/gate`.

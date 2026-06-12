@@ -1,27 +1,93 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  prepare-release-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare release pull request
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./dist/landfall prepare-self-release \
+            --repo-root . \
+            --repository "${GITHUB_REPOSITORY}" \
+            --release-branch landfall/self-release \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Open or update release pull request
+        if: steps.prepare.outputs.released == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
+          branch: ${{ steps.prepare.outputs.release_branch }}
+          delete-branch: true
+          title: ${{ steps.prepare.outputs.pull_request_title }}
+          commit-message: ${{ steps.prepare.outputs.commit_message }}
+          body: |
+            Automated Landfall self-release PR.
+
+            - Release tag: `${{ steps.prepare.outputs.release_tag }}`
+            - Generated files: `CHANGELOG.md`, `package.json`, `crates/landfall/Cargo.toml`, `Cargo.lock`
+            - Required pre-merge check: `merge-gate`
+
+            The GitHub Release is published only after this PR lands on protected `master`.
+
+  publish-landed-release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
       pull-requests: write
     steps:
-      - name: Checkout
+      - name: Checkout landed release
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
+          token: ${{ secrets.GH_RELEASE_TOKEN }}
 
-      - name: Run Landfall
-        id: landfall
+      - name: Publish landed release metadata
+        id: publish
+        shell: bash
+        env:
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./dist/landfall publish-self-release \
+            --repo-root . \
+            --github-token "${GH_RELEASE_TOKEN}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --target-sha "${GITHUB_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Synthesize landed release notes
+        if: steps.publish.outputs.published == 'true'
         uses: ./
         with:
+          mode: synthesis-only
+          release-tag: ${{ steps.publish.outputs.release_tag }}
           github-token: ${{ secrets.GH_RELEASE_TOKEN }}
           llm-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           synthesis-required: "true"
           floating-tags: "true"
+          changelog-source: release-body
