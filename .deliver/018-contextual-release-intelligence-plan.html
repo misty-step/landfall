@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Landfall 018 Contextual Release Intelligence Plan</title>
+  <style>
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #161b1d; background: #f7f8f5; }
+    main { max-width: 1160px; margin: 0 auto; padding: 40px 28px 56px; }
+    h1 { margin: 0 0 10px; font-size: 34px; }
+    h2 { margin: 28px 0 10px; font-size: 20px; }
+    p, li { line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .panel { border: 1px solid #cfd8d2; background: #fff; border-radius: 8px; padding: 16px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #cfd8d2; }
+    th, td { text-align: left; vertical-align: top; padding: 10px; border-bottom: 1px solid #e2e7e2; }
+    th { background: #edf2ee; }
+    code { background: #eef2ef; border-radius: 4px; padding: 2px 5px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Ticket 018: Contextual Release Intelligence</h1>
+  <p>Make Landfall's context and cost decisions explicit: deterministic facts first, LLM only when it changes public release notes, and separate internal/public artifact contracts.</p>
+  <div class="grid">
+    <section class="panel"><h2>Boundary</h2><p>Extend the Rust runtime's existing <code>SynthesisContextPacket</code>, <code>RunEvidence</code>, and replay scenarios. No new service, no Python, no GitHub-only assumptions.</p></section>
+    <section class="panel"><h2>Verification</h2><p>Replay proves cheap, balanced skip, rich escalation, off policy, provider failure, context packet fields, and separate artifact schemas without live secrets.</p></section>
+    <section class="panel"><h2>Risk</h2><p>Keep deterministic collection bounded: recent tags, release-range commits, changed paths, README/package/manifest summaries, prior release headings, and optional PR/release-body files.</p></section>
+  </div>
+  <h2>Implementation</h2>
+  <table>
+    <thead><tr><th>Slice</th><th>Change</th><th>Oracle</th></tr></thead>
+    <tbody>
+      <tr><td>Context packet</td><td>Add deterministic repo facts to synthesis context: commits, tags, changed files, docs, package metadata, manifest, PR metadata, prior releases, artifact audiences.</td><td><code>synthesize --dry-run-cost</code> emits the packet and schema validates key presence.</td></tr>
+      <tr><td>Cost decision</td><td>Add an explicit synthesis decision alongside cost/classification.</td><td>Status explains skipped, used, escalated, off, or provider-failure paths.</td></tr>
+      <tr><td>Artifacts</td><td>Record internal technical changelog and public release-note audiences/schemas separately in run evidence.</td><td>Local run replay asserts separate paths and schema labels.</td></tr>
+      <tr><td>Coverage</td><td>Extend replay fixtures for cheap, balanced, rich, off, and provider-failure lanes.</td><td><code>bin/gate</code> and focused replay pass.</td></tr>
+    </tbody>
+  </table>
+</main>
+</body>
+</html>

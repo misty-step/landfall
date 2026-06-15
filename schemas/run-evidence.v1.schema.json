@@ -34,7 +34,11 @@
       "required": ["technical_changelog", "markdown", "plaintext", "html", "json", "rss", "evidence"],
       "properties": {
         "technical_changelog": { "type": "string" },
+        "technical_changelog_audience": { "type": "string" },
+        "technical_changelog_schema": { "type": "string" },
         "markdown": { "type": "string" },
+        "public_notes_audience": { "type": "string" },
+        "public_notes_schema": { "type": "string" },
         "plaintext": { "type": "string" },
         "html": { "type": "string" },
         "json": { "type": "string" },

@@ -57,6 +57,7 @@ The checked schema registry is:
 
 - `schemas/landfall-manifest.v1.schema.json` for `.landfall.yml`
 - `schemas/synthesis-status.v1.schema.json` for synthesis status output
+- `schemas/release-context.v1.schema.json` for deterministic release context packets
 - `schemas/replay-result.v1.schema.json` for replay-action evidence
 - `schemas/fleet-plan.v1.schema.json` for fleet adoption plans
 - `schemas/release-entry.v1.schema.json` for release-note JSON entries

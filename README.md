@@ -170,6 +170,7 @@ The checked schema registry lives in `schemas/`:
 
 - `schemas/landfall-manifest.v1.schema.json` for `.landfall.yml`
 - `schemas/synthesis-status.v1.schema.json` for synthesis status output
+- `schemas/release-context.v1.schema.json` for deterministic release context packets
 - `schemas/replay-result.v1.schema.json` for replay evidence
 - `schemas/fleet-plan.v1.schema.json` for fleet adoption plans
 - `schemas/release-entry.v1.schema.json` for release-note JSON entries
@@ -295,13 +296,13 @@ workflow run. Use `dist/landfall setup --repo-root . --output-dir
 .landfall/setup` after editing the manifest to regenerate workflow candidates
 that reflect the durable defaults.
 
-Use `dist/landfall synthesize --dry-run-cost ...` to inspect the synthesis plan
-without calling an LLM. The dry run reports estimated input/output tokens,
-model tier, selected model, skip decision, cost estimate, deterministic release
-classification, and the final context sources included in the prompt. In
-`balanced` mode, docs-only, chore-only, dependency-only, and internal-tooling
-releases are skipped; breaking, security, and migration-heavy releases
-escalate to the rich tier.
+Use `dist/landfall synthesize --dry-run-cost ...` to inspect the release context
+packet without calling an LLM. The dry run reports deterministic repo facts,
+estimated input/output tokens, model tier, selected model, skip/use/escalation
+decision, cost estimate, release classification, and the final context sources
+included in the prompt. In `balanced` mode, docs-only, chore-only,
+dependency-only, and internal-tooling releases are skipped; breaking, security,
+and migration-heavy releases escalate to the rich tier.
 
 Use `dist/landfall backfill --repo-root . --since <tag> --dry-run` to preview
 historical artifact migration for repositories that already have release tags.
@@ -526,6 +527,16 @@ The `synthesis-status` output is a compact JSON object for automation:
       "changelog_source": "auto",
       "model_policy": "balanced"
     },
+    "deterministic": {
+      "commits": [{ "subject": "feat(cli): add import", "short_hash": "abc1234" }],
+      "tags": ["v1.1.0"],
+      "changed_files": ["src/import.rs"],
+      "docs": [{ "path": "README.md", "title": "Landfall" }],
+      "artifacts": {
+        "internal_technical_changelog": "landfall.internal-technical-changelog.v1",
+        "public_release_notes": "landfall.public-release-notes.v1:developer"
+      }
+    },
     "sources": [
       { "name": "prompt_template", "kind": "prompt", "estimated_tokens": 700, "included": true },
       { "name": "technical_changelog", "kind": "auto", "estimated_tokens": 900, "included": true },
@@ -547,6 +558,12 @@ The `synthesis-status` output is a compact JSON object for automation:
       "estimated_usd": 0.0068,
       "skip": false,
       "skip_reason": ""
+    },
+    "decision": {
+      "action": "used",
+      "reason": "balanced policy uses balanced model tier",
+      "llm_required": true,
+      "model_tier": "balanced"
     }
   },
   "destinations": {
