@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://landfall.dev/schemas/release-context.v1.schema.json",
+  "title": "Landfall release context packet",
+  "type": "object",
+  "additionalProperties": true,
+  "x-landfall-artifact": "release context packet",
+  "required": ["product", "release", "deterministic", "sources", "classification", "cost", "decision"],
+  "properties": {
+    "product": { "type": "object" },
+    "release": { "type": "object" },
+    "deterministic": {
+      "type": "object",
+      "required": ["commits", "tags", "changed_files", "manifest", "docs", "package", "prior_releases", "pr_metadata", "release_body", "artifacts"],
+      "properties": {
+        "commits": { "type": "array", "items": { "type": "object" } },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "changed_files": { "type": "array", "items": { "type": "string" } },
+        "manifest": { "type": "object" },
+        "docs": { "type": "array", "items": { "type": "object" } },
+        "package": { "type": ["object", "null"] },
+        "prior_releases": { "type": "array", "items": { "type": "string" } },
+        "pr_metadata": { "type": "object" },
+        "release_body": { "type": "object" },
+        "artifacts": { "type": "object" }
+      }
+    },
+    "sources": { "type": "array", "items": { "type": "object" } },
+    "classification": { "type": "object" },
+    "cost": { "type": "object" },
+    "decision": { "type": "object", "required": ["action", "reason", "llm_required", "model_tier"] }
+  }
+}
