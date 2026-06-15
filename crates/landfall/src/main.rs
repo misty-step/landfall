@@ -968,6 +968,13 @@ fn schema_descriptors() -> Vec<SchemaDescriptor> {
             artifact: "synthesis-status output",
         },
         SchemaDescriptor {
+            name: "release_context",
+            path: "schemas/release-context.v1.schema.json",
+            id: "https://landfall.dev/schemas/release-context.v1.schema.json",
+            version: "v1",
+            artifact: "release context packet",
+        },
+        SchemaDescriptor {
             name: "replay_result",
             path: "schemas/replay-result.v1.schema.json",
             id: "https://landfall.dev/schemas/replay-result.v1.schema.json",
@@ -1477,9 +1484,11 @@ struct EffectiveSynthesisConfig {
 struct SynthesisContextPacket {
     product: ContextProduct,
     release: ContextRelease,
+    deterministic: DeterministicReleaseContext,
     sources: Vec<ContextSource>,
     classification: ReleaseClassification,
     cost: CostEstimate,
+    decision: SynthesisDecision,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1505,6 +1514,62 @@ struct ContextSource {
     included: bool,
 }
 
+#[derive(Clone, Debug, Default, Serialize)]
+struct DeterministicReleaseContext {
+    commits: Vec<ContextCommit>,
+    tags: Vec<String>,
+    changed_files: Vec<String>,
+    manifest: ContextManifestSummary,
+    docs: Vec<ContextDocument>,
+    package: Option<ContextPackage>,
+    prior_releases: Vec<String>,
+    pr_metadata: ContextOptionalSource,
+    release_body: ContextOptionalSource,
+    artifacts: ContextArtifactAudiences,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ContextCommit {
+    subject: String,
+    short_hash: String,
+    conventional_type: String,
+    breaking: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct ContextManifestSummary {
+    present: bool,
+    product_name: String,
+    audience: String,
+    model_policy: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ContextDocument {
+    path: String,
+    title: String,
+    estimated_tokens: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ContextPackage {
+    manager: String,
+    name: String,
+    description: String,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct ContextOptionalSource {
+    present: bool,
+    estimated_tokens: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+struct ContextArtifactAudiences {
+    internal_technical_changelog: String,
+    public_release_notes: String,
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct ReleaseClassification {
     categories: Vec<String>,
@@ -1525,6 +1590,14 @@ struct CostEstimate {
     estimated_usd: f64,
     skip: bool,
     skip_reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SynthesisDecision {
+    action: String,
+    reason: String,
+    llm_required: bool,
+    model_tier: String,
 }
 
 fn init(args: InitArgs) -> Result<()> {
@@ -4845,6 +4918,7 @@ fn synthesize(args: SynthesizeArgs) -> Result<()> {
                 "message": context.cost.skip_reason,
                 "cost": context.cost.clone(),
                 "classification": context.classification.clone(),
+                "decision": context.decision.clone(),
             })],
         )?;
         ensure_parent(&args.quality_file)?;
@@ -4879,6 +4953,7 @@ fn synthesize(args: SynthesizeArgs) -> Result<()> {
                     "message": "",
                     "cost": context.cost.clone(),
                     "classification": context.classification.clone(),
+                    "decision": context.decision.clone(),
                 }));
                 write_json_if_requested(&args.attempts_file, &attempts)?;
                 ensure_parent(&args.quality_file)?;
@@ -4895,6 +4970,7 @@ fn synthesize(args: SynthesizeArgs) -> Result<()> {
                     "message": last_error,
                     "cost": context.cost.clone(),
                     "classification": context.classification.clone(),
+                    "decision": context.decision.clone(),
                 }));
             }
             Err(error) => {
@@ -4906,6 +4982,7 @@ fn synthesize(args: SynthesizeArgs) -> Result<()> {
                     "message": last_error,
                     "cost": context.cost.clone(),
                     "classification": context.classification.clone(),
+                    "decision": context.decision.clone(),
                 }));
             }
         }
@@ -5117,6 +5194,7 @@ fn synthesis_context_packet(
     let sources = synthesis_context_sources(args, config, technical, prompt);
     let classification = classify_release_context(technical, &sources);
     let cost = estimate_synthesis_cost(config, prompt, &classification, &sources);
+    let decision = synthesis_decision(config, &cost, &classification);
     SynthesisContextPacket {
         product: ContextProduct {
             name: config.product_name.clone(),
@@ -5128,10 +5206,210 @@ fn synthesis_context_packet(
             changelog_source: config.changelog_source.clone(),
             model_policy: config.model_policy.clone(),
         },
+        deterministic: deterministic_release_context(args, config),
         sources,
         classification,
         cost,
+        decision,
     }
+}
+
+fn deterministic_release_context(
+    args: &SynthesizeArgs,
+    config: &EffectiveSynthesisConfig,
+) -> DeterministicReleaseContext {
+    let repo_root = &args.repo_root;
+    DeterministicReleaseContext {
+        commits: context_commits(repo_root, &args.version),
+        tags: context_tags(repo_root),
+        changed_files: context_changed_files(repo_root, &args.version),
+        manifest: ContextManifestSummary {
+            present: repo_root.join(".landfall.yml").is_file(),
+            product_name: config.product_name.clone(),
+            audience: config.audience.clone(),
+            model_policy: config.model_policy.clone(),
+        },
+        docs: context_documents(repo_root),
+        package: context_package(repo_root),
+        prior_releases: context_prior_releases(repo_root),
+        pr_metadata: context_optional_source(&args.pr_changelog_file),
+        release_body: context_optional_source(&args.release_body_file),
+        artifacts: ContextArtifactAudiences {
+            internal_technical_changelog: "landfall.internal-technical-changelog.v1".into(),
+            public_release_notes: format!("landfall.public-release-notes.v1:{}", config.audience),
+        },
+    }
+}
+
+fn context_commits(repo_root: &Path, version: &str) -> Vec<ContextCommit> {
+    let (previous, target) = context_git_range(repo_root, version);
+    local_release_commits(repo_root, &previous, &target)
+        .unwrap_or_default()
+        .into_iter()
+        .take(30)
+        .map(|commit| ContextCommit {
+            conventional_type: conventional_commit_type(&commit.subject)
+                .unwrap_or("")
+                .to_string(),
+            breaking: is_breaking_commit(&commit),
+            subject: commit.subject,
+            short_hash: commit.short_hash,
+        })
+        .collect()
+}
+
+fn context_changed_files(repo_root: &Path, version: &str) -> Vec<String> {
+    let (previous, target) = context_git_range(repo_root, version);
+    let range = if previous.trim().is_empty() {
+        format!("{}..{target}", empty_git_tree())
+    } else {
+        format!("{previous}..{target}")
+    };
+    run_ok("git", ["diff", "--name-only", range.as_str()], repo_root)
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(100)
+        .map(str::to_string)
+        .collect()
+}
+
+fn context_git_range(repo_root: &Path, version: &str) -> (String, String) {
+    let tags = backfill_tags(repo_root).unwrap_or_default();
+    let normalized = version.trim();
+    let target = if tags.iter().any(|tag| tag.tag == normalized) {
+        normalized.to_string()
+    } else {
+        "HEAD".into()
+    };
+    let previous = tags
+        .iter()
+        .find(|tag| tag.tag == normalized)
+        .and_then(|tag| previous_backfill_tag(&tags, tag))
+        .or_else(|| {
+            tags.iter()
+                .rfind(|tag| !tag.prerelease)
+                .map(|tag| tag.tag.clone())
+        })
+        .filter(|tag| tag != &target)
+        .unwrap_or_default();
+    (previous, target)
+}
+
+fn context_tags(repo_root: &Path) -> Vec<String> {
+    backfill_tags(repo_root)
+        .unwrap_or_default()
+        .into_iter()
+        .rev()
+        .take(10)
+        .map(|tag| tag.tag)
+        .collect()
+}
+
+fn context_documents(repo_root: &Path) -> Vec<ContextDocument> {
+    ["README.md", "docs/README.md"]
+        .iter()
+        .filter_map(|path| {
+            let full = repo_root.join(path);
+            let text = fs::read_to_string(&full).ok()?;
+            let title = text
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+                .trim_start_matches('#')
+                .trim()
+                .to_string();
+            Some(ContextDocument {
+                path: (*path).into(),
+                title,
+                estimated_tokens: estimate_tokens(&text),
+            })
+        })
+        .collect()
+}
+
+fn context_package(repo_root: &Path) -> Option<ContextPackage> {
+    if let Some(package) = read_package_json(repo_root) {
+        return Some(ContextPackage {
+            manager: "npm".into(),
+            name: package["name"].as_str().unwrap_or("").to_string(),
+            description: package["description"].as_str().unwrap_or("").to_string(),
+        });
+    }
+    let cargo = fs::read_to_string(repo_root.join("Cargo.toml")).ok()?;
+    let name = Regex::new(r#"(?m)^name\s*=\s*"([^"]+)""#)
+        .ok()?
+        .captures(&cargo)
+        .and_then(|caps| caps.get(1))
+        .map(|value| value.as_str().to_string())
+        .unwrap_or_default();
+    Some(ContextPackage {
+        manager: "cargo".into(),
+        name,
+        description: String::new(),
+    })
+}
+
+fn context_prior_releases(repo_root: &Path) -> Vec<String> {
+    let changelog = fs::read_to_string(repo_root.join("CHANGELOG.md")).unwrap_or_default();
+    Regex::new(r"(?m)^##\s+(.+)$")
+        .unwrap()
+        .captures_iter(&changelog)
+        .filter_map(|caps| caps.get(1).map(|value| value.as_str().trim().to_string()))
+        .take(5)
+        .collect()
+}
+
+fn context_optional_source(path: &Path) -> ContextOptionalSource {
+    let text = read_optional_file(path).ok().flatten().unwrap_or_default();
+    ContextOptionalSource {
+        present: !text.trim().is_empty(),
+        estimated_tokens: if text.trim().is_empty() {
+            0
+        } else {
+            estimate_tokens(&text)
+        },
+    }
+}
+
+fn synthesis_decision(
+    config: &EffectiveSynthesisConfig,
+    cost: &CostEstimate,
+    classification: &ReleaseClassification,
+) -> SynthesisDecision {
+    let (action, reason, llm_required) = if cost.skip {
+        ("skipped", cost.skip_reason.clone(), false)
+    } else if config.model_policy.trim().eq_ignore_ascii_case("balanced")
+        && cost.model_tier == "rich"
+        && classification.significance == "high"
+    {
+        (
+            "escalated",
+            "high-significance release uses rich model tier".into(),
+            true,
+        )
+    } else {
+        (
+            "used",
+            format!(
+                "{} policy uses {} model tier",
+                config.model_policy, cost.model_tier
+            ),
+            true,
+        )
+    };
+    SynthesisDecision {
+        action: action.into(),
+        reason,
+        llm_required,
+        model_tier: cost.model_tier.clone(),
+    }
+}
+
+fn empty_git_tree() -> &'static str {
+    "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 }
 
 fn synthesis_context_sources(
@@ -5888,7 +6166,11 @@ struct RunVersionDecision {
 #[derive(Clone, Debug, Serialize)]
 struct RunArtifactRecord {
     technical_changelog: String,
+    technical_changelog_audience: String,
+    technical_changelog_schema: String,
     markdown: String,
+    public_notes_audience: String,
+    public_notes_schema: String,
     plaintext: String,
     html: String,
     json: String,
@@ -5979,6 +6261,7 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
     };
     let artifacts = write_run_artifacts(
         &args,
+        &manifest,
         &repository,
         &release.release_tag,
         &release_url_base(&args, &repository),
@@ -6236,6 +6519,7 @@ fn humanize_commit_subject(subject: &str) -> String {
 
 fn write_run_artifacts(
     args: &RunArgs,
+    manifest: &LandfallManifest,
     repository: &str,
     release_tag: &str,
     release_url_base: &str,
@@ -6294,7 +6578,15 @@ fn write_run_artifacts(
         run_output_path(&args.repo_root, &args.evidence_file, release_tag).unwrap_or_default();
     Ok(RunArtifactRecord {
         technical_changelog: technical.display().to_string(),
+        technical_changelog_audience: "internal-developer-operator".into(),
+        technical_changelog_schema: "landfall.internal-technical-changelog.v1".into(),
         markdown: markdown.display().to_string(),
+        public_notes_audience: manifest
+            .audience
+            .as_deref()
+            .and_then(trimmed_option)
+            .unwrap_or_else(|| "general".into()),
+        public_notes_schema: "landfall.public-release-notes.v1".into(),
         plaintext: plaintext.display().to_string(),
         html: html.display().to_string(),
         json: json_path.display().to_string(),
@@ -9313,6 +9605,15 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
     if evidence["version_decision"]["bump"] != "minor" {
         return Err("local run did not classify feat commit as a minor bump".into());
     }
+    if evidence["artifacts"]["technical_changelog_schema"]
+        != "landfall.internal-technical-changelog.v1"
+        || evidence["artifacts"]["public_notes_schema"] != "landfall.public-release-notes.v1"
+        || evidence["artifacts"]["technical_changelog_audience"] != "internal-developer-operator"
+    {
+        return Err(
+            "local run evidence did not separate internal and public artifact schemas".into(),
+        );
+    }
     let markdown = repo.join("docs/releases/v1.1.0.md");
     let plaintext = repo.join("docs/releases/v1.1.0.txt");
     let html = repo.join("docs/releases/v1.1.0.html");
@@ -9981,6 +10282,13 @@ model:
     let dry_context: Value = serde_json::from_slice(&dry_run.stdout)?;
     if dry_context["cost"]["skip"] != true
         || dry_context["cost"]["model_tier"] != "off"
+        || dry_context["decision"]["action"] != "skipped"
+        || dry_context["deterministic"]["docs"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+        || dry_context["deterministic"]["artifacts"]["internal_technical_changelog"]
+            != "landfall.internal-technical-changelog.v1"
         || dry_context["classification"]["categories"]
             .as_array()
             .unwrap()
@@ -10045,6 +10353,8 @@ model:
     let cheap_context: Value = serde_json::from_str(&fs::read_to_string(&cheap_context_file)?)?;
     if cheap_request["model"] != "openai/gpt-4o-mini"
         || cheap_context["cost"]["model_tier"] != "cheap"
+        || cheap_context["decision"]["action"] != "used"
+        || cheap_context["deterministic"]["manifest"]["present"] != true
         || cheap_context["sources"]
             .as_array()
             .unwrap()
@@ -10157,10 +10467,149 @@ model:
     }
     let rich_context: Value = serde_json::from_slice(&rich.stdout)?;
     if rich_context["cost"]["model_tier"] != "rich"
+        || rich_context["decision"]["action"] != "escalated"
         || rich_context["classification"]["security"] != true
         || rich_context["classification"]["breaking"] != true
     {
         return Err("balanced policy did not escalate high-significance release".into());
+    }
+
+    fs::write(
+        repo.join(".landfall.yml"),
+        r#"product:
+  name: Cost Policy Demo
+  description: Demo release automation.
+model:
+  policy: rich
+"#,
+    )?;
+    let direct_rich = Command::new(current_exe())
+        .args([
+            "synthesize",
+            "--api-key",
+            "",
+            "--api-url",
+            "http://127.0.0.1:1/chat/completions",
+            "--version",
+            "v1.2.3",
+            "--changelog-file",
+            "CHANGELOG.md",
+            "--templates-dir",
+        ])
+        .arg(&templates_dir)
+        .args([
+            "--quality-file",
+            "direct-rich-quality.txt",
+            "--dry-run-cost",
+        ])
+        .args(["--repo-root"])
+        .arg(&repo)
+        .current_dir(&repo)
+        .output()?;
+    if !direct_rich.status.success() {
+        return Err(String::from_utf8_lossy(&direct_rich.stderr)
+            .to_string()
+            .into());
+    }
+    let direct_rich_context: Value = serde_json::from_slice(&direct_rich.stdout)?;
+    if direct_rich_context["cost"]["model_tier"] != "rich"
+        || direct_rich_context["decision"]["action"] != "used"
+    {
+        return Err("direct rich policy should use, not escalate, rich synthesis".into());
+    }
+
+    fs::write(
+        repo.join(".landfall.yml"),
+        r#"product:
+  name: Cost Policy Demo
+  description: Demo release automation.
+model:
+  policy: off
+"#,
+    )?;
+    let off_attempts = repo.join("off-attempts.json");
+    let off = Command::new(current_exe())
+        .args([
+            "synthesize",
+            "--api-key",
+            "",
+            "--api-url",
+            "http://127.0.0.1:1/chat/completions",
+            "--version",
+            "v1.2.3",
+            "--changelog-file",
+            "CHANGELOG.md",
+            "--templates-dir",
+        ])
+        .arg(&templates_dir)
+        .args(["--quality-file", "off-quality.txt"])
+        .args(["--attempts-file"])
+        .arg(&off_attempts)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .current_dir(&repo)
+        .output()?;
+    if !off.status.success() {
+        return Err(String::from_utf8_lossy(&off.stderr).to_string().into());
+    }
+    let off_attempts_json: Value = serde_json::from_str(&fs::read_to_string(&off_attempts)?)?;
+    if off_attempts_json[0]["quality"] != "skipped"
+        || off_attempts_json[0]["decision"]["action"] != "skipped"
+    {
+        return Err("off policy did not explain skipped synthesis".into());
+    }
+
+    fs::write(
+        repo.join(".landfall.yml"),
+        r#"product:
+  name: Cost Policy Demo
+  description: Demo release automation.
+model:
+  policy: cheap
+  primary: primary/model
+"#,
+    )?;
+    let provider_failure_server = start_fake_server(FakeState {
+        llm_status: 500,
+        llm_notes: String::new(),
+        update_status: 200,
+        ..Default::default()
+    })?;
+    let provider_failure_attempts = repo.join("provider-failure-attempts.json");
+    let provider_failure = Command::new(current_exe())
+        .args([
+            "synthesize",
+            "--api-key",
+            "test-key",
+            "--api-url",
+            &format!("{}/chat/completions", provider_failure_server.url),
+            "--version",
+            "v1.2.3",
+            "--changelog-file",
+            "CHANGELOG.md",
+            "--templates-dir",
+        ])
+        .arg(&templates_dir)
+        .args(["--quality-file", "provider-failure-quality.txt"])
+        .args(["--attempts-file"])
+        .arg(&provider_failure_attempts)
+        .args(["--repo-root"])
+        .arg(&repo)
+        .current_dir(&repo)
+        .output()?;
+    if provider_failure.status.success() {
+        return Err("provider failure synthesis should return a failed exit".into());
+    }
+    let provider_failure_json: Value =
+        serde_json::from_str(&fs::read_to_string(&provider_failure_attempts)?)?;
+    if provider_failure_json[0]["quality"] != "failed"
+        || provider_failure_json[0]["decision"]["action"] != "used"
+        || !provider_failure_json[0]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("failed")
+    {
+        return Err("provider failure path did not record failed attempt metadata".into());
     }
 
     Ok(json!({
@@ -10168,6 +10617,9 @@ model:
         "cheap_model": cheap_request["model"],
         "fallback_attempts": attempts,
         "rich_cost": rich_context["cost"],
+        "direct_rich_decision": direct_rich_context["decision"],
+        "off_policy": off_attempts_json,
+        "provider_failure": provider_failure_json,
     }))
 }
 
