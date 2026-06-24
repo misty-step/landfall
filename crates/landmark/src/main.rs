@@ -6783,6 +6783,7 @@ struct RunEvidence {
     notes_sha256: String,
     version_decision: RunVersionDecision,
     artifacts: RunArtifactRecord,
+    release_kit: ReleaseKit,
     publication: RunPublicationRecord,
 }
 
@@ -6808,6 +6809,9 @@ struct RunArtifactRecord {
     json: String,
     rss: String,
     evidence: String,
+    release_kit: String,
+    release_kit_schema: String,
+    release_kit_sha256: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -6817,6 +6821,103 @@ struct RunPublicationRecord {
     release_body_updated: bool,
     release_url: String,
     status: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKit {
+    schema_version: String,
+    generated_at: String,
+    product: ReleaseKitProduct,
+    release: ReleaseKitRelease,
+    classification: ReleaseKitClassification,
+    artifacts: Vec<ReleaseKitArtifact>,
+    producer_contracts: Vec<ReleaseKitProducerContract>,
+    provenance: Vec<ReleaseKitProvenance>,
+    approvals: Vec<ReleaseKitApproval>,
+    status: ReleaseKitStatus,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitProduct {
+    name: String,
+    repository: String,
+    audience: String,
+    description: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitRelease {
+    tag: String,
+    version: String,
+    previous_tag: String,
+    repository: String,
+    release_url: String,
+    version_decision: RunVersionDecision,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitClassification {
+    importance: String,
+    audiences: Vec<String>,
+    why_it_matters: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitArtifact {
+    id: String,
+    kind: String,
+    audience: String,
+    owner: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sha256: Option<String>,
+    acceptance: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    waiver: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitProducerContract {
+    id: String,
+    producer: String,
+    adapter_kind: String,
+    input_artifacts: Vec<String>,
+    output_artifacts: Vec<String>,
+    command: String,
+    mutates: bool,
+    acceptance: Vec<String>,
+    evidence_path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitProvenance {
+    artifact_id: String,
+    sources: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitApproval {
+    artifact_id: String,
+    state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    approver: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ReleaseKitStatus {
+    complete: bool,
+    blocked: bool,
+    summary: String,
 }
 
 #[derive(Clone, Debug)]
@@ -6891,7 +6992,7 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
     } else {
         render_local_public_notes(&manifest, &release)
     };
-    let artifacts = write_run_artifacts(
+    let mut artifacts = write_run_artifacts(
         &args,
         &manifest,
         &repository,
@@ -6902,9 +7003,28 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
     )?;
     let publication =
         publish_run_release_body(&args, &provider, &repository, &release.release_tag, &notes)?;
+    artifacts.release_kit = run_release_kit_path(&args).display().to_string();
+    artifacts.release_kit_schema = "landmark.release-kit.v1".into();
+    let generated_at = Utc::now().to_rfc3339();
+    let release_kit = plan_release_kit(ReleaseKitPlanInput {
+        args: &args,
+        manifest: &manifest,
+        repository: &repository,
+        release: &release,
+        artifacts: &artifacts,
+        publication: &publication,
+        technical_changelog: &technical_changelog,
+        notes: &notes,
+        generated_at: &generated_at,
+    });
+    let release_kit_json = serde_json::to_string_pretty(&release_kit)? + "\n";
+    artifacts.release_kit_sha256 = sha256_hex(release_kit_json.as_bytes());
+    if !args.dry_run && !artifacts.release_kit.trim().is_empty() {
+        write_path(Path::new(&artifacts.release_kit), &release_kit_json)?;
+    }
     let evidence = RunEvidence {
         provider,
-        generated_at: Utc::now().to_rfc3339(),
+        generated_at,
         repo_root: args.repo_root.display().to_string(),
         repository,
         release_tag: release.release_tag.clone(),
@@ -6915,6 +7035,7 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
         notes_sha256: sha256_hex(notes.as_bytes()),
         version_decision: release.decision,
         artifacts,
+        release_kit,
         publication,
     };
     let evidence_json = serde_json::to_string_pretty(&evidence)? + "\n";
@@ -7224,7 +7345,473 @@ fn write_run_artifacts(
         json: json_path.display().to_string(),
         rss: rss_path.display().to_string(),
         evidence: evidence.display().to_string(),
+        release_kit: String::new(),
+        release_kit_schema: String::new(),
+        release_kit_sha256: String::new(),
     })
+}
+
+fn run_release_kit_path(args: &RunArgs) -> PathBuf {
+    if args.output_dir.as_os_str().is_empty() {
+        PathBuf::new()
+    } else {
+        args.repo_root
+            .join(&args.output_dir)
+            .join("release-kit.json")
+    }
+}
+
+struct ReleaseKitPlanInput<'a> {
+    args: &'a RunArgs,
+    manifest: &'a LandmarkManifest,
+    repository: &'a str,
+    release: &'a RunReleaseContext,
+    artifacts: &'a RunArtifactRecord,
+    publication: &'a RunPublicationRecord,
+    technical_changelog: &'a str,
+    notes: &'a str,
+    generated_at: &'a str,
+}
+
+struct ReleaseKitArtifactSpec<'a> {
+    id: &'a str,
+    kind: &'a str,
+    audience: &'a str,
+    owner: &'a str,
+    status: &'a str,
+    path: Option<String>,
+    sha256: Option<String>,
+    acceptance: &'a [&'a str],
+    depends_on: &'a [&'a str],
+}
+
+fn plan_release_kit(input: ReleaseKitPlanInput<'_>) -> ReleaseKit {
+    let ReleaseKitPlanInput {
+        args,
+        manifest,
+        repository,
+        release,
+        artifacts,
+        publication,
+        technical_changelog,
+        notes,
+        generated_at,
+    } = input;
+    let mut classification_text = technical_changelog.to_string();
+    for commit in &release.commits {
+        classification_text.push('\n');
+        classification_text.push_str(&commit.subject);
+        classification_text.push('\n');
+        classification_text.push_str(&commit.body);
+    }
+    let context_sources = vec![
+        context_source("technical_changelog", "git_range", technical_changelog),
+        context_source("public_notes", "generated", notes),
+    ];
+    let release_classification = classify_release_context(&classification_text, &context_sources);
+    let importance = release_kit_importance(&release_classification, &release.decision);
+    let primary_audience = manifest
+        .audience
+        .as_deref()
+        .and_then(trimmed_option)
+        .unwrap_or_else(|| "general".into());
+    let audiences = release_kit_audiences(&primary_audience, &importance);
+    let product_name = manifest
+        .product
+        .name
+        .as_deref()
+        .and_then(trimmed_option)
+        .unwrap_or_else(|| repository.to_string());
+    let product_description = manifest
+        .product
+        .description
+        .as_deref()
+        .and_then(trimmed_option)
+        .unwrap_or_default();
+    let technical_status = artifact_status(args.dry_run, &artifacts.technical_changelog);
+    let notes_status = artifact_status(args.dry_run, &artifacts.markdown);
+    let feed_status = artifact_status(args.dry_run, &artifacts.rss);
+    let technical_sha = sha256_hex(technical_changelog.as_bytes());
+    let notes_sha = sha256_hex(notes.as_bytes());
+
+    let mut kit_artifacts = vec![
+        release_kit_artifact(ReleaseKitArtifactSpec {
+            id: "technical-changelog",
+            kind: "technical_changelog",
+            audience: "developer-operator",
+            owner: "landmark",
+            status: &technical_status,
+            path: trimmed_option(&artifacts.technical_changelog),
+            sha256: Some(technical_sha.clone()),
+            acceptance: &[
+                "Preserves the raw commit subjects and hashes for operator review.",
+                "Matches landmark.internal-technical-changelog.v1.",
+            ],
+            depends_on: &[],
+        }),
+        release_kit_artifact(ReleaseKitArtifactSpec {
+            id: "release-notes",
+            kind: "release_notes",
+            audience: &primary_audience,
+            owner: "landmark",
+            status: &notes_status,
+            path: trimmed_option(&artifacts.markdown),
+            sha256: Some(notes_sha.clone()),
+            acceptance: &[
+                "Summarizes the release for the configured audience.",
+                "Can be published without exposing internal-only commit detail.",
+            ],
+            depends_on: &["technical-changelog"],
+        }),
+    ];
+    if !artifacts.rss.trim().is_empty() {
+        kit_artifacts.push(release_kit_artifact(ReleaseKitArtifactSpec {
+            id: "release-feed",
+            kind: "feed",
+            audience: "subscriber",
+            owner: "landmark",
+            status: &feed_status,
+            path: trimmed_option(&artifacts.rss),
+            sha256: None,
+            acceptance: &[
+                "Links to the release tag URL.",
+                "Retains only the configured maximum number of feed entries.",
+            ],
+            depends_on: &["release-notes"],
+        }));
+    }
+
+    let rich_artifacts = release_kit_needs_rich_artifacts(&importance);
+    if rich_artifacts {
+        let docs_dir = "docs/releases";
+        kit_artifacts.extend([
+            release_kit_artifact(ReleaseKitArtifactSpec {
+                id: "migration-guide",
+                kind: "migration_guide",
+                audience: "developer",
+                owner: "producer-adapter",
+                status: "planned",
+                path: Some(format!("{docs_dir}/{}-migration.md", release.release_tag)),
+                sha256: None,
+                acceptance: &[
+                    "Names required user or operator migration steps.",
+                    "Links back to the release facts and technical changelog.",
+                ],
+                depends_on: &["technical-changelog", "release-notes"],
+            }),
+            release_kit_artifact(ReleaseKitArtifactSpec {
+                id: "docs-update",
+                kind: "docs_update",
+                audience: "developer",
+                owner: "producer-adapter",
+                status: "planned",
+                path: Some(format!("{docs_dir}/{}-docs.patch", release.release_tag)),
+                sha256: None,
+                acceptance: &[
+                    "Updates user-facing setup or upgrade documentation.",
+                    "Leaves a reviewable patch and evidence receipt.",
+                ],
+                depends_on: &["migration-guide"],
+            }),
+            release_kit_artifact(ReleaseKitArtifactSpec {
+                id: "blog-draft",
+                kind: "blog_post",
+                audience: &primary_audience,
+                owner: "producer-adapter",
+                status: "planned",
+                path: Some(format!("{docs_dir}/{}-blog.md", release.release_tag)),
+                sha256: None,
+                acceptance: &[
+                    "Explains why the release matters to the target audience.",
+                    "Keeps claims grounded in release provenance.",
+                ],
+                depends_on: &["release-notes"],
+            }),
+            release_kit_artifact(ReleaseKitArtifactSpec {
+                id: "demo-video",
+                kind: "video",
+                audience: &primary_audience,
+                owner: "producer-adapter",
+                status: "planned",
+                path: Some(format!("{docs_dir}/{}-demo.mp4", release.release_tag)),
+                sha256: None,
+                acceptance: &[
+                    "Demonstrates the changed workflow from the release kit brief.",
+                    "Returns a path, hash, and review evidence before publication.",
+                ],
+                depends_on: &["demo-script"],
+            }),
+            release_kit_artifact(ReleaseKitArtifactSpec {
+                id: "demo-script",
+                kind: "demo_script",
+                audience: "developer-operator",
+                owner: "landmark",
+                status: "planned",
+                path: Some(format!("{docs_dir}/{}-demo-script.md", release.release_tag)),
+                sha256: None,
+                acceptance: &[
+                    "Scopes the demo to release facts and user-visible workflow changes.",
+                    "Can be handed to a video or browser-capture producer.",
+                ],
+                depends_on: &["release-notes"],
+            }),
+        ]);
+    }
+
+    let producer_contracts = if rich_artifacts {
+        release_kit_producer_contracts(args, artifacts, &release.release_tag)
+    } else {
+        Vec::new()
+    };
+    let provenance = kit_artifacts
+        .iter()
+        .map(|artifact| {
+            let mut sources = vec![
+                format!("git:{}", release.decision.range),
+                format!("technical_changelog_sha256:{technical_sha}"),
+            ];
+            if artifact.id != "technical-changelog" {
+                sources.push(format!("notes_sha256:{notes_sha}"));
+            }
+            if artifact.owner == "producer-adapter" {
+                sources.push(format!("release_kit:{}", artifacts.release_kit));
+            }
+            ReleaseKitProvenance {
+                artifact_id: artifact.id.clone(),
+                sources,
+                notes: Some(format!("planned from {} release facts", importance)),
+            }
+        })
+        .collect::<Vec<_>>();
+    let approvals = kit_artifacts
+        .iter()
+        .map(|artifact| {
+            if artifact.owner == "producer-adapter" {
+                ReleaseKitApproval {
+                    artifact_id: artifact.id.clone(),
+                    state: "pending".into(),
+                    approver: None,
+                    reason: Some("producer output must be reviewed before publication".into()),
+                }
+            } else {
+                ReleaseKitApproval {
+                    artifact_id: artifact.id.clone(),
+                    state: "not-required".into(),
+                    approver: Some("landmark".into()),
+                    reason: Some("Landmark-owned artifact generated from release facts".into()),
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+    let pending_approvals = approvals
+        .iter()
+        .filter(|approval| approval.state == "pending")
+        .count();
+    let complete = !args.dry_run
+        && pending_approvals == 0
+        && kit_artifacts
+            .iter()
+            .all(|artifact| matches!(artifact.status.as_str(), "produced" | "verified" | "waived"));
+    let status_summary = if args.dry_run {
+        "dry-run release kit printed in evidence; no artifacts were written".to_string()
+    } else if pending_approvals > 0 {
+        format!(
+            "release kit generated with {pending_approvals} producer-owned artifact approvals pending"
+        )
+    } else if complete {
+        "release kit complete for Landmark-owned outputs".into()
+    } else {
+        "release kit generated with planned Landmark outputs still pending".into()
+    };
+
+    ReleaseKit {
+        schema_version: "landmark.release-kit.v1".into(),
+        generated_at: generated_at.to_string(),
+        product: ReleaseKitProduct {
+            name: product_name,
+            repository: repository.to_string(),
+            audience: primary_audience.clone(),
+            description: product_description,
+        },
+        release: ReleaseKitRelease {
+            tag: release.release_tag.clone(),
+            version: release.version.clone(),
+            previous_tag: release.previous_tag.clone(),
+            repository: repository.to_string(),
+            release_url: publication.release_url.clone(),
+            version_decision: release.decision.clone(),
+        },
+        classification: ReleaseKitClassification {
+            importance: importance.clone(),
+            audiences,
+            why_it_matters: release_kit_importance_reason(&importance, &release_classification),
+        },
+        artifacts: kit_artifacts,
+        producer_contracts,
+        provenance,
+        approvals,
+        status: ReleaseKitStatus {
+            complete,
+            blocked: false,
+            summary: status_summary,
+        },
+    }
+}
+
+fn artifact_status(dry_run: bool, path: &str) -> String {
+    if dry_run || path.trim().is_empty() {
+        "planned".into()
+    } else {
+        "produced".into()
+    }
+}
+
+fn release_kit_importance(
+    classification: &ReleaseClassification,
+    decision: &RunVersionDecision,
+) -> String {
+    if classification.security {
+        "security".into()
+    } else if decision.bump == "major" || classification.breaking || classification.migration_heavy
+    {
+        "migration".into()
+    } else if classification.significance == "high" {
+        "high".into()
+    } else if decision.latest_tag.is_empty() && decision.bump != "none" {
+        "launch".into()
+    } else if classification.significance == "low" {
+        "low".into()
+    } else {
+        "medium".into()
+    }
+}
+
+fn release_kit_audiences(primary: &str, importance: &str) -> Vec<String> {
+    let mut audiences = BTreeSet::new();
+    audiences.insert(primary.to_string());
+    audiences.insert("developer-operator".into());
+    if release_kit_needs_rich_artifacts(importance) {
+        audiences.insert("release-operator".into());
+        audiences.insert("docs-owner".into());
+    }
+    audiences.into_iter().collect()
+}
+
+fn release_kit_needs_rich_artifacts(importance: &str) -> bool {
+    matches!(importance, "high" | "launch" | "migration" | "security")
+}
+
+fn release_kit_importance_reason(
+    importance: &str,
+    classification: &ReleaseClassification,
+) -> String {
+    match importance {
+        "security" => "security-sensitive release needs explicit review and downstream handoffs",
+        "migration" => {
+            "breaking or migration-heavy release needs upgrade guidance and launch assets"
+        }
+        "launch" => "first managed release needs adoption-facing launch artifacts",
+        "high" => "high-importance release needs richer final-mile artifact planning",
+        "low" => "internal or low-significance release should keep the final-mile kit small",
+        _ => "user-visible release needs Landmark-owned notes and feed evidence",
+    }
+    .to_string()
+        + if classification.reasons.is_empty() {
+            ""
+        } else {
+            "; signals: "
+        }
+        + &classification.reasons.join("; ")
+}
+
+fn release_kit_artifact(spec: ReleaseKitArtifactSpec<'_>) -> ReleaseKitArtifact {
+    ReleaseKitArtifact {
+        id: spec.id.into(),
+        kind: spec.kind.into(),
+        audience: spec.audience.into(),
+        owner: spec.owner.into(),
+        status: spec.status.into(),
+        path: spec.path,
+        sha256: spec.sha256,
+        acceptance: spec.acceptance.iter().map(|item| (*item).into()).collect(),
+        depends_on: spec.depends_on.iter().map(|item| (*item).into()).collect(),
+        blocker: None,
+        waiver: None,
+    }
+}
+
+fn release_kit_producer_contracts(
+    args: &RunArgs,
+    artifacts: &RunArtifactRecord,
+    release_tag: &str,
+) -> Vec<ReleaseKitProducerContract> {
+    let evidence_dir = if args.output_dir.as_os_str().is_empty() {
+        args.repo_root.join(".landmark/run/producers")
+    } else {
+        args.repo_root.join(&args.output_dir).join("producers")
+    };
+    vec![
+        ReleaseKitProducerContract {
+            id: "docs-producer".into(),
+            producer: "release docs producer".into(),
+            adapter_kind: "local-cli".into(),
+            input_artifacts: vec!["technical-changelog".into(), "release-notes".into()],
+            output_artifacts: vec!["migration-guide".into(), "docs-update".into()],
+            command: format!(
+                "landmark-producer docs --release-kit {} --release-tag {release_tag}",
+                artifacts.release_kit
+            ),
+            mutates: false,
+            acceptance: vec![
+                "Returns a reviewable docs patch or migration guide path.".into(),
+                "Writes an evidence receipt before any repository mutation.".into(),
+            ],
+            evidence_path: evidence_dir
+                .join("docs-producer.json")
+                .display()
+                .to_string(),
+        },
+        ReleaseKitProducerContract {
+            id: "launch-copy-producer".into(),
+            producer: "launch copy skill".into(),
+            adapter_kind: "harness-skill".into(),
+            input_artifacts: vec!["release-notes".into(), "migration-guide".into()],
+            output_artifacts: vec!["blog-draft".into()],
+            command: format!(
+                "harness-skill://release-copy?release-kit={}&release-tag={release_tag}",
+                artifacts.release_kit
+            ),
+            mutates: false,
+            acceptance: vec![
+                "Draft copy cites release-kit provenance instead of inventing claims.".into(),
+                "Draft is marked pending until human or producer review approves it.".into(),
+            ],
+            evidence_path: evidence_dir
+                .join("launch-copy-producer.json")
+                .display()
+                .to_string(),
+        },
+        ReleaseKitProducerContract {
+            id: "demo-video-producer".into(),
+            producer: "demo video handoff".into(),
+            adapter_kind: "human".into(),
+            input_artifacts: vec!["demo-script".into(), "release-notes".into()],
+            output_artifacts: vec!["demo-video".into()],
+            command: format!(
+                "human handoff: produce demo video from {} for {release_tag}",
+                artifacts.release_kit
+            ),
+            mutates: false,
+            acceptance: vec![
+                "Returned video has a path, hash, and review evidence.".into(),
+                "Demo follows the release-kit acceptance checks.".into(),
+            ],
+            evidence_path: evidence_dir
+                .join("demo-video-producer.json")
+                .display()
+                .to_string(),
+        },
+    ]
 }
 
 fn release_url_base(args: &RunArgs, repository: &str) -> String {
@@ -9377,6 +9964,13 @@ fn scenario_agent_native_contracts(tmp_root: &Path) -> Result<Value> {
     }
     let evidence: Value = serde_json::from_slice(&dry_run.stdout)?;
     assert_json_eq(&evidence, "/provider", "local", "dry-run provider")?;
+    assert_release_kit_contract(&evidence["release_kit"], "dry-run release kit")?;
+    assert_json_eq(
+        &evidence,
+        "/artifacts/release_kit_schema",
+        "landmark.release-kit.v1",
+        "dry-run release kit schema",
+    )?;
     assert_json_eq(
         &evidence,
         "/publication/status",
@@ -9385,6 +9979,12 @@ fn scenario_agent_native_contracts(tmp_root: &Path) -> Result<Value> {
     )?;
     if repo.join("docs/releases/releases.json").exists() {
         return Err("run --dry-run wrote JSON artifact".into());
+    }
+    let dry_release_kit_path = evidence["artifacts"]["release_kit"]
+        .as_str()
+        .ok_or("dry-run missing planned release-kit path")?;
+    if Path::new(dry_release_kit_path).exists() {
+        return Err("run --dry-run wrote release-kit artifact".into());
     }
 
     let backfill = Command::new(current_exe())
@@ -9512,6 +10112,7 @@ fn scenario_agent_native_contracts(tmp_root: &Path) -> Result<Value> {
         "json_error_code": failure["error"]["code"],
         "dry_run_release_tag": evidence["release_tag"],
         "dry_run_artifacts": evidence["artifacts"],
+        "dry_run_release_kit": evidence["release_kit"],
         "fleet_json_paths": {
             "scan_repositories": fleet_scan_json["repositories"].as_array().map(Vec::len).unwrap_or(0),
             "plan_repositories": fleet_plan_json["repositories"].as_array().map(Vec::len).unwrap_or(0),
@@ -9527,6 +10128,283 @@ fn assert_json_eq(value: &Value, pointer: &str, expected: &str, label: &str) -> 
         .ok_or_else(|| format!("{label} missing JSON string at {pointer}"))?;
     if actual != expected {
         return Err(format!("{label} expected `{expected}`, got `{actual}`").into());
+    }
+    Ok(())
+}
+
+fn assert_release_kit_schema(value: &Value, label: &str) -> Result<()> {
+    let schema_path = env::current_dir()?.join("schemas/release-kit.v1.schema.json");
+    let schema: Value = serde_json::from_str(&fs::read_to_string(&schema_path)?)?;
+    let mut errors = Vec::new();
+    validate_json_schema_subset(&schema, value, "$", &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{label} does not validate against {}:\n{}",
+            schema_path.display(),
+            errors.join("\n")
+        )
+        .into())
+    }
+}
+
+fn validate_json_schema_subset(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    if let Some(expected) = schema.get("const")
+        && value != expected
+    {
+        errors.push(format!("{path} expected const {expected}, got {value}"));
+    }
+    if let Some(variants) = schema.get("enum").and_then(Value::as_array)
+        && !variants.iter().any(|variant| variant == value)
+    {
+        errors.push(format!("{path} expected one of {variants:?}, got {value}"));
+    }
+    let Some(schema_type) = schema.get("type").and_then(Value::as_str) else {
+        return;
+    };
+    match schema_type {
+        "object" => validate_object_schema_subset(schema, value, path, errors),
+        "array" => validate_array_schema_subset(schema, value, path, errors),
+        "string" if !value.is_string() => {
+            errors.push(format!("{path} expected string, got {}", json_type(value)));
+        }
+        "boolean" if !value.is_boolean() => {
+            errors.push(format!("{path} expected boolean, got {}", json_type(value)));
+        }
+        "integer" if !value.is_i64() && !value.is_u64() => {
+            errors.push(format!("{path} expected integer, got {}", json_type(value)));
+        }
+        "number" if !value.is_number() => {
+            errors.push(format!("{path} expected number, got {}", json_type(value)));
+        }
+        _ => {}
+    }
+}
+
+fn validate_object_schema_subset(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(object) = value.as_object() else {
+        errors.push(format!("{path} expected object, got {}", json_type(value)));
+        return;
+    };
+    let required: BTreeSet<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    for key in &required {
+        if !object.contains_key(*key) {
+            errors.push(format!("{path} missing required property `{key}`"));
+        }
+    }
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
+        for key in object.keys() {
+            if !properties.contains_key(key) {
+                errors.push(format!("{path} has unexpected property `{key}`"));
+            }
+        }
+    }
+    for (key, property_schema) in properties {
+        if let Some(child) = object.get(&key) {
+            validate_json_schema_subset(&property_schema, child, &format!("{path}/{key}"), errors);
+        }
+    }
+}
+
+fn validate_array_schema_subset(
+    schema: &Value,
+    value: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+) {
+    let Some(items) = value.as_array() else {
+        errors.push(format!("{path} expected array, got {}", json_type(value)));
+        return;
+    };
+    if let Some(item_schema) = schema.get("items") {
+        for (index, item) in items.iter().enumerate() {
+            validate_json_schema_subset(item_schema, item, &format!("{path}/{index}"), errors);
+        }
+    }
+}
+
+fn json_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn assert_release_kit_contract(value: &Value, label: &str) -> Result<()> {
+    assert_release_kit_schema(value, label)?;
+    assert_json_eq(value, "/schema_version", "landmark.release-kit.v1", label)?;
+    for pointer in [
+        "/generated_at",
+        "/product/name",
+        "/release/tag",
+        "/classification/importance",
+        "/classification/why_it_matters",
+        "/status/summary",
+    ] {
+        if value
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            return Err(format!("{label} missing required string at {pointer}").into());
+        }
+    }
+    for pointer in [
+        "/classification/audiences",
+        "/artifacts",
+        "/provenance",
+        "/approvals",
+    ] {
+        if value
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .is_none_or(|items| items.is_empty())
+        {
+            return Err(format!("{label} missing non-empty array at {pointer}").into());
+        }
+    }
+    if !value["producer_contracts"].is_array() {
+        return Err(format!("{label} producer_contracts must be an array").into());
+    }
+    let artifacts = value["artifacts"]
+        .as_array()
+        .ok_or_else(|| format!("{label} artifacts must be an array"))?;
+    let artifact_ids: BTreeSet<String> = artifacts
+        .iter()
+        .filter_map(|artifact| artifact["id"].as_str().map(str::to_string))
+        .collect();
+    for artifact in artifacts {
+        for pointer in ["/id", "/kind", "/audience", "/owner", "/status"] {
+            if artifact
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err(format!("{label} artifact missing string at {pointer}").into());
+            }
+        }
+        if artifact["acceptance"]
+            .as_array()
+            .is_none_or(|items| items.is_empty())
+        {
+            return Err(format!("{label} artifact missing acceptance checks").into());
+        }
+    }
+    for provenance in value["provenance"]
+        .as_array()
+        .ok_or_else(|| format!("{label} provenance must be an array"))?
+    {
+        let artifact_id = provenance["artifact_id"].as_str().unwrap_or_default();
+        if !artifact_ids.contains(artifact_id) {
+            return Err(
+                format!("{label} provenance references unknown artifact `{artifact_id}`").into(),
+            );
+        }
+        if provenance["sources"]
+            .as_array()
+            .is_none_or(|items| items.is_empty())
+        {
+            return Err(format!("{label} provenance missing sources").into());
+        }
+    }
+    for approval in value["approvals"]
+        .as_array()
+        .ok_or_else(|| format!("{label} approvals must be an array"))?
+    {
+        let artifact_id = approval["artifact_id"].as_str().unwrap_or_default();
+        if !artifact_ids.contains(artifact_id) {
+            return Err(
+                format!("{label} approval references unknown artifact `{artifact_id}`").into(),
+            );
+        }
+        if approval["state"].as_str().unwrap_or_default().is_empty() {
+            return Err(format!("{label} approval missing state").into());
+        }
+    }
+    for contract in value["producer_contracts"]
+        .as_array()
+        .ok_or_else(|| format!("{label} producer_contracts must be an array"))?
+    {
+        for pointer in [
+            "/id",
+            "/producer",
+            "/adapter_kind",
+            "/command",
+            "/evidence_path",
+        ] {
+            if contract
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            {
+                return Err(
+                    format!("{label} producer contract missing string at {pointer}").into(),
+                );
+            }
+        }
+        if !contract["mutates"].is_boolean() {
+            return Err(format!("{label} producer contract missing mutates boolean").into());
+        }
+        for pointer in ["/input_artifacts", "/output_artifacts", "/acceptance"] {
+            if contract
+                .pointer(pointer)
+                .and_then(Value::as_array)
+                .is_none_or(|items| items.is_empty())
+            {
+                return Err(format!(
+                    "{label} producer contract missing non-empty array at {pointer}"
+                )
+                .into());
+            }
+        }
+        for pointer in ["/input_artifacts", "/output_artifacts"] {
+            for artifact_id in contract
+                .pointer(pointer)
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                if !artifact_ids.contains(artifact_id) {
+                    return Err(format!(
+                        "{label} producer contract references unknown artifact `{artifact_id}`"
+                    )
+                    .into());
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -10267,20 +11145,37 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
         != "landmark.internal-technical-changelog.v1"
         || evidence["artifacts"]["public_notes_schema"] != "landmark.public-release-notes.v1"
         || evidence["artifacts"]["technical_changelog_audience"] != "internal-developer-operator"
+        || evidence["artifacts"]["release_kit_schema"] != "landmark.release-kit.v1"
     {
         return Err(
-            "local run evidence did not separate internal and public artifact schemas".into(),
+            "local run evidence did not separate internal, public, and release-kit artifact schemas"
+                .into(),
         );
     }
+    assert_release_kit_contract(&evidence["release_kit"], "local run release kit")?;
     let markdown = repo.join("docs/releases/v1.1.0.md");
     let plaintext = repo.join("docs/releases/v1.1.0.txt");
     let html = repo.join("docs/releases/v1.1.0.html");
     let json_path = repo.join("docs/releases/releases.json");
     let feed = repo.join("docs/releases/feed.xml");
-    for path in [&markdown, &plaintext, &html, &json_path, &feed] {
+    let release_kit = repo.join(".landmark/run/release-kit.json");
+    for path in [
+        &markdown,
+        &plaintext,
+        &html,
+        &json_path,
+        &feed,
+        &release_kit,
+    ] {
         if !path.is_file() {
             return Err(format!("local run did not write {}", path.display()).into());
         }
+    }
+    let release_kit_file: Value = serde_json::from_str(&fs::read_to_string(&release_kit)?)?;
+    if release_kit_file != evidence["release_kit"] {
+        return Err(
+            "local run evidence release kit did not match written release-kit artifact".into(),
+        );
     }
     let notes = fs::read_to_string(&markdown)?;
     if !notes.contains("Add portable release run") {
@@ -10404,10 +11299,100 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
     {
         return Err("local run did not treat BREAKING CHANGE footer as a major bump".into());
     }
+    assert_release_kit_contract(&breaking_evidence["release_kit"], "breaking release kit")?;
+    let breaking_artifacts = breaking_evidence["release_kit"]["artifacts"]
+        .as_array()
+        .ok_or("breaking release kit artifacts missing")?;
+    if !breaking_artifacts.iter().any(|artifact| {
+        artifact["owner"] == "producer-adapter" && artifact["kind"] == "migration_guide"
+    }) || !breaking_artifacts
+        .iter()
+        .any(|artifact| artifact["owner"] == "producer-adapter" && artifact["kind"] == "video")
+    {
+        return Err(
+            "high-importance release kit did not plan richer adapter-owned artifacts".into(),
+        );
+    }
+    if !breaking_evidence["release_kit"]["producer_contracts"]
+        .as_array()
+        .is_some_and(|contracts| {
+            contracts.iter().any(|contract| {
+                contract["adapter_kind"] == "local-cli"
+                    && contract["mutates"] == false
+                    && contract["evidence_path"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .contains(".landmark/run")
+            })
+        })
+    {
+        return Err("high-importance release kit did not name a non-mutating producer contract with evidence path".into());
+    }
+
+    let internal_repo = tmp_root.join("local-provider-internal");
+    init_fixture_repo(&internal_repo, "v1.0.0")?;
+    fs::create_dir_all(internal_repo.join(".github/workflows"))?;
+    fs::write(internal_repo.join(".github/workflows/ci.yml"), "name: CI\n")?;
+    run_ok("git", ["add", ".github/workflows/ci.yml"], &internal_repo)?;
+    run_ok(
+        "git",
+        ["commit", "-q", "-m", "ci: refresh workflow"],
+        &internal_repo,
+    )?;
+    let internal_result = Command::new(current_exe())
+        .args([
+            "run",
+            "--provider",
+            "local",
+            "--repo-root",
+            internal_repo.to_str().unwrap(),
+            "--repository",
+            "local-provider-internal",
+            "--output-dir",
+            ".landmark/run",
+            "--technical-changelog-file",
+            ".landmark/run/technical.md",
+            "--evidence-file",
+            ".landmark/run/evidence.json",
+            "--output-file",
+            "",
+            "--output-text-file",
+            "",
+            "--output-html-file",
+            "",
+            "--output-json",
+            "",
+            "--rss-feed-file",
+            "",
+        ])
+        .output()?;
+    if !internal_result.status.success() {
+        return Err(String::from_utf8_lossy(&internal_result.stderr)
+            .to_string()
+            .into());
+    }
+    let internal_evidence_path = internal_repo.join(".landmark/run/evidence.json");
+    let internal_evidence: Value =
+        serde_json::from_str(&fs::read_to_string(&internal_evidence_path)?)?;
+    assert_release_kit_contract(&internal_evidence["release_kit"], "internal release kit")?;
+    let internal_artifacts = internal_evidence["release_kit"]["artifacts"]
+        .as_array()
+        .ok_or("internal release kit artifacts missing")?;
+    if internal_evidence["release_kit"]["classification"]["importance"] != "low" {
+        return Err("internal release kit did not classify as low importance".into());
+    }
+    if internal_artifacts.len() > 3
+        || internal_artifacts
+            .iter()
+            .any(|artifact| artifact["owner"] == "producer-adapter")
+    {
+        return Err("low-importance internal release kit did not stay small".into());
+    }
     Ok(json!({
         "evidence": evidence,
         "tagged_evidence": tagged_evidence,
         "breaking_footer_evidence": breaking_evidence,
+        "internal_evidence": internal_evidence,
         "stdout": String::from_utf8_lossy(&result.stdout).trim(),
         "artifacts": {
             "markdown": markdown,
@@ -10417,6 +11402,7 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
             "rss": feed,
             "technical_changelog": repo.join(".landmark/run/technical.md"),
             "evidence": evidence_path,
+            "release_kit": release_kit,
         }
     }))
 }

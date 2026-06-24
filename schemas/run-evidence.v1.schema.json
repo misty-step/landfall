@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "x-landmark-artifact": "landmark run evidence packet",
-  "required": ["provider", "generated_at", "repo_root", "repository", "release_tag", "version", "previous_tag", "source", "technical_changelog_sha256", "notes_sha256", "version_decision", "artifacts", "publication"],
+  "required": ["provider", "generated_at", "repo_root", "repository", "release_tag", "version", "previous_tag", "source", "technical_changelog_sha256", "notes_sha256", "version_decision", "artifacts", "release_kit", "publication"],
   "properties": {
     "provider": { "type": "string", "enum": ["local", "github"] },
     "generated_at": { "type": "string" },
@@ -31,7 +31,7 @@
     },
     "artifacts": {
       "type": "object",
-      "required": ["technical_changelog", "markdown", "plaintext", "html", "json", "rss", "evidence"],
+      "required": ["technical_changelog", "markdown", "plaintext", "html", "json", "rss", "evidence", "release_kit", "release_kit_schema", "release_kit_sha256"],
       "properties": {
         "technical_changelog": { "type": "string" },
         "technical_changelog_audience": { "type": "string" },
@@ -43,10 +43,14 @@
         "html": { "type": "string" },
         "json": { "type": "string" },
         "rss": { "type": "string" },
-        "evidence": { "type": "string" }
+        "evidence": { "type": "string" },
+        "release_kit": { "type": "string" },
+        "release_kit_schema": { "type": "string", "const": "landmark.release-kit.v1" },
+        "release_kit_sha256": { "type": "string" }
       },
       "additionalProperties": false
     },
+    "release_kit": { "$ref": "release-kit.v1.schema.json" },
     "publication": {
       "type": "object",
       "required": ["provider", "enabled", "release_body_updated", "release_url", "status"],

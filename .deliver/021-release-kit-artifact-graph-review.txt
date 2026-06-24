@@ -1,0 +1,11 @@
+BLOCKING: yes.
+
+**Findings**
+- [schemas/release-kit.v1.schema.json](/Users/phaedrus/Development/landmark/schemas/release-kit.v1.schema.json:53) does not require producer contracts to include `command` or `evidence_path`, even though those properties exist at lines 60 and 63 and the backlog oracle requires them. The replay helper also only partially checks release-kit shape: [main.rs](/Users/phaedrus/Development/landmark/crates/landmark/src/main.rs:10135) never validates producer contract fields, and the high-importance check only looks for one contract with `adapter_kind`, `mutates`, and an evidence-path substring at [main.rs](/Users/phaedrus/Development/landmark/crates/landmark/src/main.rs:11136). A kit can pass the checked schema/replay while missing the command or evidence handoff contract. Fix by making `command` and `evidence_path` required in the schema and validating every contract in replay.
+
+- Acceptance says the printed/written kit validates against `schemas/release-kit.v1.schema.json`, but I found only a hand-rolled subset validator at [main.rs](/Users/phaedrus/Development/landmark/crates/landmark/src/main.rs:10135). `check-action-contract` parses schemas and checks `$id`/docs presence around [main.rs](/Users/phaedrus/Development/landmark/crates/landmark/src/main.rs:8960), but it does not validate runtime `release_kit` JSON against the schema. That leaves the core schema-validity claim unproven by the gate/replay path.
+
+**Important**
+- The implementation adds ~810 lines to an already 14,492-line [main.rs](/Users/phaedrus/Development/landmark/crates/landmark/src/main.rs:6826). The release-kit types and planner are cohesive enough to be a focused module; keeping the whole object model, planner, producer contracts, and replay assertions inside `main.rs` worsens the existing large-file problem.
+
+I inspected `git status --short --branch --untracked-files=all` and `git diff origin/master`; tracked changes are `README.md`, `crates/landmark/src/main.rs`, `docs/agent-integration.md`, and `schemas/run-evidence.v1.schema.json`, with two untracked `.deliver` files. I did not run `bin/gate` because this sandbox is read-only and the gate/replay paths write build and evidence outputs.

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en" data-ae-mode="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Landmark 021 Release Kit Artifact Graph Plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=Geist+Mono:wght@100..900&amp;display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/misty-step/aesthetic@v2.5.1/aesthetic.css">
+  <style>
+    :root { --ae-accent: #1f6b4c; --ae-accent-dark: #8ed8b5; }
+    .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(92rem, 100% - 4rem); }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(24em, 0.72fr); gap: 3em; align-items: end; }
+    .grid-2, .grid-3, .grid-5 { display: grid; gap: 1px; background: var(--ae-line); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .cell { min-width: 0; background: var(--ae-surface); padding: 1.2em 1.35em; }
+    .wash { background: var(--ae-wash); }
+    .phase { display: grid; grid-template-columns: 8em minmax(0, 1fr) minmax(16em, 0.7fr); gap: 1.3em; border-top: 1px solid var(--ae-line); padding-top: 1em; margin-top: 1em; }
+    .phase:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .rule { border-top: 1px solid var(--ae-line); margin: 1.4em 0; }
+    .table-wrap { overflow-x: auto; }
+    @media (max-width: 980px) {
+      .plan-wide .ae-bar, .plan-wide .ae-stage { width: min(100% - 2rem, 92rem); }
+      .hero, .grid-2, .grid-3, .grid-5, .phase { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="ae-screen plan-wide">
+  <header class="ae-bar">
+    <a class="ae-name" href="../backlog.d/021-build-release-kit-artifact-graph.md">BACKLOG 021</a>
+    <p class="ae-chrome">release-kit artifact graph delivery plan</p>
+  </header>
+
+  <main class="ae-stage ae-stage-scroll">
+    <article class="ae-view">
+      <section class="hero" aria-label="Plan contract">
+        <div>
+          <p class="ae-chrome">LANDMARK RUST CLI / RELEASE KIT CONTRACT</p>
+          <h1 class="ae-strong">Make <code>landmark run --dry-run</code> emit a schema-valid release-kit plan.</h1>
+          <p class="ae-lede">The runtime should turn release facts into a typed final-mile artifact graph: Landmark-owned outputs, adapter-owned outputs, provenance, approvals, blockers, and producer handoff contracts. Keep the core as release intelligence; do not add media production, CMS publishing, or bespoke producer execution.</p>
+        </div>
+        <aside class="ae-panel">
+          <h2 class="ae-h">CHOSEN DESIGN</h2>
+          <p>Extend the Rust runtime's release evidence path to derive and write a <code>release-kit</code> JSON artifact from the existing release context and importance classification.</p>
+          <div class="rule"></div>
+          <h2 class="ae-h">QUALITY SYSTEM</h2>
+          <p><strong>Tier:</strong> high-stakes for release automation public surface.</p>
+          <p><strong>Proof:</strong> CLI dry run transcript, schema validation through existing contract checks, replay scenario coverage, and fresh artifact-only critic.</p>
+          <div class="rule"></div>
+          <p class="ae-dim">Premise source: <code>backlog.d/021-build-release-kit-artifact-graph.md</code></p>
+          <p class="ae-dim">Plan status: open locally before product-code edits.</p>
+        </aside>
+      </section>
+
+      <section class="grid-5" aria-label="Executive contract" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">STANDARDS</h2>
+          <p>Rust owns runtime behavior. JSON contracts stay schema-backed. GitHub behavior stays adapter-specific. No Node, shell, or Python orchestration enters the release-kit core.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">ACCEPTANCE</h2>
+          <p><code>run --dry-run</code> produces or prints a <code>landmark.release-kit.v1</code> artifact with artifacts, producer contracts, provenance, approvals, and status.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">VERIFY</h2>
+          <p><code>cargo test --locked</code>, <code>cargo run --locked -- check-action-contract</code>, <code>bin/replay-action</code>, focused dry run, then <code>bin/gate</code>.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">COMMUNICATE</h2>
+          <p>Report plan opened, failing tests, implementation surface, replay evidence path, critic result, gate, final git state, and residual risk.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">STOP IF</h2>
+          <p>Schema needs a breaking change, replay fixtures contradict the backlog oracle, or implementation starts executing producer work instead of planning it.</p>
+        </article>
+      </section>
+
+      <section class="grid-3" aria-label="Current state" style="margin-top: 1px">
+        <article class="cell">
+          <h2 class="ae-h">CURRENT STATE</h2>
+          <p>The schema and docs exist, but the runtime still needs to generate a concrete release-kit artifact from <code>run --dry-run</code> and replay evidence.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">CHANGE SHAPE</h2>
+          <p>Add typed Rust structs and planner logic near the release context/evidence path, wire output paths and dry-run stdout, then extend replay tests.</p>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">PROOF SURFACE</h2>
+          <p>Evidence lives under <code>.landmark/run</code> and <code>.landmark/replay</code>; schema truth lives in <code>schemas/release-kit.v1.schema.json</code>.</p>
+        </article>
+      </section>
+
+      <section class="grid-2" aria-label="Scope and anchors" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">SCOPE</h2>
+          <p><strong>Goal:</strong> runtime generation of the release-kit graph.</p>
+          <p><strong>Non-goals:</strong> executing producer adapters, publishing to external systems, or designing actual media artifacts.</p>
+          <p><strong>Invariants:</strong> dry-run remains non-mutating; GitHub mutation requires explicit adapter flags; fallback release publishing semantics stay intact.</p>
+        </article>
+        <article class="cell">
+          <h2 class="ae-h">REPO ANCHORS</h2>
+          <p><code>crates/landmark/src/main.rs</code> - Rust CLI and release runtime.</p>
+          <p><code>schemas/release-kit.v1.schema.json</code> - release-kit contract.</p>
+          <p><code>bin/gate</code> and <code>bin/replay-action</code> - structural and live replay gates.</p>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Execution plan" style="margin-top: 2em">
+        <h2 class="ae-h">EXECUTION PLAN</h2>
+        <div class="phase">
+          <strong class="ae-accent">1 frame</strong>
+          <p>Map the current run evidence, release context, replay scenarios, and schema registry before edits.</p>
+          <p class="ae-dim">Evidence: files read and baseline failing test target named.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">2 test</strong>
+          <p>Add tests that require a high-importance dry run to produce richer adapter-owned artifacts and a low/internal run to keep the kit small.</p>
+          <p class="ae-dim">Evidence: failing test output before implementation.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">3 build</strong>
+          <p>Implement release-kit planning and persistence through the existing Rust runtime surface with no new language boundary.</p>
+          <p class="ae-dim">Evidence: passing tests plus dry-run artifact transcript.</p>
+        </div>
+        <div class="phase">
+          <strong class="ae-accent">4 close</strong>
+          <p>Run replay, gate, artifact-only critic, commit, push, and report tree/remote state.</p>
+          <p class="ae-dim">Evidence: command outputs, critic receipt, final status.</p>
+        </div>
+      </section>
+
+      <section class="grid-2" aria-label="Alternatives and risks" style="margin-top: 2em">
+        <article class="cell">
+          <h2 class="ae-h">ALTERNATIVES</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>option</th><th>benefit</th><th>tradeoff</th><th>verdict</th></tr></thead>
+              <tbody>
+                <tr><td class="ae-item">runtime planner</td><td>Portable, testable, schema-backed</td><td>Requires Rust surface</td><td>choose</td></tr>
+                <tr><td class="ae-item">docs-only kit</td><td>Fast</td><td>Fails backlog oracle</td><td>reject</td></tr>
+                <tr><td class="ae-item">producer execution now</td><td>More demo output</td><td>Blurs Landmark boundary</td><td>defer</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+        <article class="cell wash">
+          <h2 class="ae-h">RISKS</h2>
+          <div class="table-wrap">
+            <table class="ae-table">
+              <thead><tr><th>risk</th><th>mitigation</th><th>owner</th></tr></thead>
+              <tbody>
+                <tr><td>Kit is syntactically valid but not useful.</td><td>Replay must distinguish high-importance and low/internal artifact graphs.</td><td>agent</td></tr>
+                <tr><td>Release core starts owning producer work.</td><td>Producer contracts are handoffs only; adapters remain explicit and non-mutating by default.</td><td>agent</td></tr>
+                <tr><td>Public CLI contract drifts from docs.</td><td>Update README/agent docs and pass <code>check-action-contract</code>.</td><td>agent</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="ae-panel" aria-label="Review topology" style="margin-top: 2em">
+        <h2 class="ae-h">REVIEW TOPOLOGY</h2>
+        <p><strong>Critic:</strong> fresh artifact-only review after implementation, focused on public surface, human workflow, performance, compatibility, and operations.</p>
+        <p><strong>Ignore:</strong> formatting preferences that do not affect schema validity, dry-run behavior, release boundaries, or replay strength.</p>
+      </section>
+    </article>
+  </main>
+
+  <footer class="ae-bar">
+    <p class="ae-foot">Generated from the Harness Kit HTML plan template and filled for Landmark backlog 021.</p>
+  </footer>
+</div>
+</body>
+</html>
