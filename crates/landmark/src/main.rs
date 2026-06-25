@@ -20,6 +20,8 @@ use std::thread;
 use std::time::Duration;
 use tiny_http::{Header, Method, Response, Server};
 
+mod release_kit;
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 const VALID_NOTES: &str = "## Improvements\n\n- Added a replay harness that checks release behavior in a disposable repo.\n- Captured release body updates, artifacts, tags, and structured logs.\n- Kept the run local so no production secrets or GitHub releases are touched.\n";
@@ -6783,6 +6785,7 @@ struct RunEvidence {
     notes_sha256: String,
     version_decision: RunVersionDecision,
     artifacts: RunArtifactRecord,
+    release_kit: release_kit::ReleaseKit,
     publication: RunPublicationRecord,
 }
 
@@ -6808,6 +6811,9 @@ struct RunArtifactRecord {
     json: String,
     rss: String,
     evidence: String,
+    release_kit: String,
+    release_kit_schema: String,
+    release_kit_sha256: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -6891,7 +6897,7 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
     } else {
         render_local_public_notes(&manifest, &release)
     };
-    let artifacts = write_run_artifacts(
+    let mut artifacts = write_run_artifacts(
         &args,
         &manifest,
         &repository,
@@ -6902,9 +6908,28 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
     )?;
     let publication =
         publish_run_release_body(&args, &provider, &repository, &release.release_tag, &notes)?;
+    artifacts.release_kit = release_kit::artifact_path(&args).display().to_string();
+    artifacts.release_kit_schema = release_kit::schema_version().into();
+    let generated_at = Utc::now().to_rfc3339();
+    let release_kit = release_kit::plan(release_kit::PlanInput {
+        args: &args,
+        manifest: &manifest,
+        repository: &repository,
+        release: &release,
+        artifacts: &artifacts,
+        publication: &publication,
+        technical_changelog: &technical_changelog,
+        notes: &notes,
+        generated_at: &generated_at,
+    });
+    let release_kit_json = serde_json::to_string_pretty(&release_kit)? + "\n";
+    artifacts.release_kit_sha256 = sha256_hex(release_kit_json.as_bytes());
+    if !args.dry_run && !artifacts.release_kit.trim().is_empty() {
+        write_path(Path::new(&artifacts.release_kit), &release_kit_json)?;
+    }
     let evidence = RunEvidence {
         provider,
-        generated_at: Utc::now().to_rfc3339(),
+        generated_at,
         repo_root: args.repo_root.display().to_string(),
         repository,
         release_tag: release.release_tag.clone(),
@@ -6915,6 +6940,7 @@ fn run_pipeline(args: RunArgs) -> Result<()> {
         notes_sha256: sha256_hex(notes.as_bytes()),
         version_decision: release.decision,
         artifacts,
+        release_kit,
         publication,
     };
     let evidence_json = serde_json::to_string_pretty(&evidence)? + "\n";
@@ -7224,6 +7250,9 @@ fn write_run_artifacts(
         json: json_path.display().to_string(),
         rss: rss_path.display().to_string(),
         evidence: evidence.display().to_string(),
+        release_kit: String::new(),
+        release_kit_schema: String::new(),
+        release_kit_sha256: String::new(),
     })
 }
 
@@ -9377,6 +9406,13 @@ fn scenario_agent_native_contracts(tmp_root: &Path) -> Result<Value> {
     }
     let evidence: Value = serde_json::from_slice(&dry_run.stdout)?;
     assert_json_eq(&evidence, "/provider", "local", "dry-run provider")?;
+    release_kit::assert_contract(&evidence["release_kit"], "dry-run release kit")?;
+    assert_json_eq(
+        &evidence,
+        "/artifacts/release_kit_schema",
+        "landmark.release-kit.v1",
+        "dry-run release kit schema",
+    )?;
     assert_json_eq(
         &evidence,
         "/publication/status",
@@ -9385,6 +9421,12 @@ fn scenario_agent_native_contracts(tmp_root: &Path) -> Result<Value> {
     )?;
     if repo.join("docs/releases/releases.json").exists() {
         return Err("run --dry-run wrote JSON artifact".into());
+    }
+    let dry_release_kit_path = evidence["artifacts"]["release_kit"]
+        .as_str()
+        .ok_or("dry-run missing planned release-kit path")?;
+    if Path::new(dry_release_kit_path).exists() {
+        return Err("run --dry-run wrote release-kit artifact".into());
     }
 
     let backfill = Command::new(current_exe())
@@ -9512,6 +9554,7 @@ fn scenario_agent_native_contracts(tmp_root: &Path) -> Result<Value> {
         "json_error_code": failure["error"]["code"],
         "dry_run_release_tag": evidence["release_tag"],
         "dry_run_artifacts": evidence["artifacts"],
+        "dry_run_release_kit": evidence["release_kit"],
         "fleet_json_paths": {
             "scan_repositories": fleet_scan_json["repositories"].as_array().map(Vec::len).unwrap_or(0),
             "plan_repositories": fleet_plan_json["repositories"].as_array().map(Vec::len).unwrap_or(0),
@@ -10267,20 +10310,37 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
         != "landmark.internal-technical-changelog.v1"
         || evidence["artifacts"]["public_notes_schema"] != "landmark.public-release-notes.v1"
         || evidence["artifacts"]["technical_changelog_audience"] != "internal-developer-operator"
+        || evidence["artifacts"]["release_kit_schema"] != "landmark.release-kit.v1"
     {
         return Err(
-            "local run evidence did not separate internal and public artifact schemas".into(),
+            "local run evidence did not separate internal, public, and release-kit artifact schemas"
+                .into(),
         );
     }
+    release_kit::assert_contract(&evidence["release_kit"], "local run release kit")?;
     let markdown = repo.join("docs/releases/v1.1.0.md");
     let plaintext = repo.join("docs/releases/v1.1.0.txt");
     let html = repo.join("docs/releases/v1.1.0.html");
     let json_path = repo.join("docs/releases/releases.json");
     let feed = repo.join("docs/releases/feed.xml");
-    for path in [&markdown, &plaintext, &html, &json_path, &feed] {
+    let release_kit = repo.join(".landmark/run/release-kit.json");
+    for path in [
+        &markdown,
+        &plaintext,
+        &html,
+        &json_path,
+        &feed,
+        &release_kit,
+    ] {
         if !path.is_file() {
             return Err(format!("local run did not write {}", path.display()).into());
         }
+    }
+    let release_kit_file: Value = serde_json::from_str(&fs::read_to_string(&release_kit)?)?;
+    if release_kit_file != evidence["release_kit"] {
+        return Err(
+            "local run evidence release kit did not match written release-kit artifact".into(),
+        );
     }
     let notes = fs::read_to_string(&markdown)?;
     if !notes.contains("Add portable release run") {
@@ -10404,10 +10464,100 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
     {
         return Err("local run did not treat BREAKING CHANGE footer as a major bump".into());
     }
+    release_kit::assert_contract(&breaking_evidence["release_kit"], "breaking release kit")?;
+    let breaking_artifacts = breaking_evidence["release_kit"]["artifacts"]
+        .as_array()
+        .ok_or("breaking release kit artifacts missing")?;
+    if !breaking_artifacts.iter().any(|artifact| {
+        artifact["owner"] == "producer-adapter" && artifact["kind"] == "migration_guide"
+    }) || !breaking_artifacts
+        .iter()
+        .any(|artifact| artifact["owner"] == "producer-adapter" && artifact["kind"] == "video")
+    {
+        return Err(
+            "high-importance release kit did not plan richer adapter-owned artifacts".into(),
+        );
+    }
+    if !breaking_evidence["release_kit"]["producer_contracts"]
+        .as_array()
+        .is_some_and(|contracts| {
+            contracts.iter().any(|contract| {
+                contract["adapter_kind"] == "local-cli"
+                    && contract["mutates"] == false
+                    && contract["evidence_path"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .contains(".landmark/run")
+            })
+        })
+    {
+        return Err("high-importance release kit did not name a non-mutating producer contract with evidence path".into());
+    }
+
+    let internal_repo = tmp_root.join("local-provider-internal");
+    init_fixture_repo(&internal_repo, "v1.0.0")?;
+    fs::create_dir_all(internal_repo.join(".github/workflows"))?;
+    fs::write(internal_repo.join(".github/workflows/ci.yml"), "name: CI\n")?;
+    run_ok("git", ["add", ".github/workflows/ci.yml"], &internal_repo)?;
+    run_ok(
+        "git",
+        ["commit", "-q", "-m", "ci: refresh workflow"],
+        &internal_repo,
+    )?;
+    let internal_result = Command::new(current_exe())
+        .args([
+            "run",
+            "--provider",
+            "local",
+            "--repo-root",
+            internal_repo.to_str().unwrap(),
+            "--repository",
+            "local-provider-internal",
+            "--output-dir",
+            ".landmark/run",
+            "--technical-changelog-file",
+            ".landmark/run/technical.md",
+            "--evidence-file",
+            ".landmark/run/evidence.json",
+            "--output-file",
+            "",
+            "--output-text-file",
+            "",
+            "--output-html-file",
+            "",
+            "--output-json",
+            "",
+            "--rss-feed-file",
+            "",
+        ])
+        .output()?;
+    if !internal_result.status.success() {
+        return Err(String::from_utf8_lossy(&internal_result.stderr)
+            .to_string()
+            .into());
+    }
+    let internal_evidence_path = internal_repo.join(".landmark/run/evidence.json");
+    let internal_evidence: Value =
+        serde_json::from_str(&fs::read_to_string(&internal_evidence_path)?)?;
+    release_kit::assert_contract(&internal_evidence["release_kit"], "internal release kit")?;
+    let internal_artifacts = internal_evidence["release_kit"]["artifacts"]
+        .as_array()
+        .ok_or("internal release kit artifacts missing")?;
+    if internal_evidence["release_kit"]["classification"]["importance"] != "low" {
+        return Err("internal release kit did not classify as low importance".into());
+    }
+    if internal_artifacts.len() > 3
+        || internal_artifacts
+            .iter()
+            .any(|artifact| artifact["owner"] == "producer-adapter")
+    {
+        return Err("low-importance internal release kit did not stay small".into());
+    }
     Ok(json!({
         "evidence": evidence,
         "tagged_evidence": tagged_evidence,
         "breaking_footer_evidence": breaking_evidence,
+        "internal_evidence": internal_evidence,
         "stdout": String::from_utf8_lossy(&result.stdout).trim(),
         "artifacts": {
             "markdown": markdown,
@@ -10417,6 +10567,7 @@ fn scenario_local_provider_run(tmp_root: &Path) -> Result<Value> {
             "rss": feed,
             "technical_changelog": repo.join(".landmark/run/technical.md"),
             "evidence": evidence_path,
+            "release_kit": release_kit,
         }
     }))
 }

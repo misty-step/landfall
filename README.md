@@ -34,8 +34,11 @@ cargo run --locked -- run --provider local --repo-root .
 
 The command reads git tags and conventional commits, chooses the next semantic
 version when `--release-tag` is omitted, writes `.landmark/run/evidence.json`,
-generates a technical changelog, and writes markdown, plaintext, HTML, JSON, and
-RSS release artifacts under `docs/releases/`.
+generates a technical changelog, writes `.landmark/run/release-kit.json`, and
+writes markdown, plaintext, HTML, JSON, and RSS release artifacts under
+`docs/releases/`. The evidence packet also embeds the release-kit plan so
+`--dry-run` can print the complete final-mile artifact graph without writing
+files.
 
 Source build is the portable install path today: use `cargo run --locked -- ...`
 or a locally built `target/debug/landmark`. dist/landmark is the checked-in
@@ -348,6 +351,16 @@ decision, cost estimate, release classification, and the final context sources
 included in the prompt. In `balanced` mode, docs-only, chore-only,
 dependency-only, and internal-tooling releases are skipped; breaking, security,
 and migration-heavy releases escalate to the rich tier.
+
+Use `dist/landmark run --provider local --repo-root .` to write a release-kit
+plan at `.landmark/run/release-kit.json` and record its schema and hash in
+`.landmark/run/evidence.json`. `--dry-run` keeps the filesystem untouched and
+prints the same `release_kit` object inside the stdout evidence packet. Low
+internal releases keep the kit to Landmark-owned changelog and notes evidence;
+high-importance, security, breaking, or migration-heavy releases add planned
+producer-adapter artifacts such as migration guides, docs updates, blog drafts,
+and demo videos with explicit handoff contracts, evidence paths, and pending
+approval state.
 
 Use `dist/landmark backfill --repo-root . --since <tag> --mode artifacts-only
 --dry-run` to preview historical artifact migration for repositories that

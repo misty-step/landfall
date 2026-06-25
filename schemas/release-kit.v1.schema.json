@@ -50,7 +50,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "producer", "adapter_kind", "input_artifacts", "output_artifacts", "mutates", "acceptance"],
+        "required": ["id", "producer", "adapter_kind", "input_artifacts", "output_artifacts", "command", "mutates", "acceptance", "evidence_path"],
         "properties": {
           "id": { "type": "string" },
           "producer": { "type": "string" },

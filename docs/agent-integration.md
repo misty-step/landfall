@@ -33,8 +33,11 @@ For a zero-secret local preview, run:
 landmark run --provider local --repo-root . --dry-run
 ```
 
-`--dry-run` computes the release decision, artifact paths, hashes, and
-publication plan without writing artifacts or mutating a remote release.
+`--dry-run` computes the release decision, artifact paths, hashes, publication
+plan, and embedded `release_kit` without writing artifacts or mutating a remote
+release. A normal local run writes the same release-kit artifact to
+`.landmark/run/release-kit.json` and records its schema and hash in
+`.landmark/run/evidence.json`.
 
 For a GitHub-backed pipeline, keep publication explicit:
 
