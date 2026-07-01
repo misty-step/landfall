@@ -203,6 +203,146 @@ fn release_notes_include_classification_notice_for_disagreements() {
     assert!(rendered.contains("deterministic floor found user-visible"));
 }
 
+#[test]
+fn classifier_keeps_workflow_manifest_cli_substrings_low_for_chore() {
+    let deterministic = deterministic_context(
+        vec![context_commit(
+            "chore(ci): refresh workflow",
+            "Touches manifest defaults and CLI examples.",
+        )],
+        vec![
+            ".github/workflows/release.yml".into(),
+            ".landmark.yml".into(),
+        ],
+    );
+    let technical = "### Chores\n\n* refresh workflow for CLI manifest setup\n".to_string();
+    let sources = vec![context_source(
+        "technical_changelog",
+        "changelog",
+        &technical,
+    )];
+
+    let classification =
+        classify_release_context_with_deterministic(&technical, &sources, &deterministic);
+
+    assert!(!classification.user_visible, "{classification:?}");
+    assert_eq!(classification.significance, "low");
+    assert!(
+        classification
+            .deterministic_signals
+            .iter()
+            .any(|signal| signal == "conventional:chore"),
+        "{classification:?}"
+    );
+    assert!(
+        classification
+            .categories
+            .iter()
+            .any(|category| category == "internal-tooling"),
+        "{classification:?}"
+    );
+}
+
+#[test]
+fn classifier_recovers_conventional_floor_from_squash_body() {
+    let deterministic = deterministic_context(
+        vec![context_commit(
+            "Merge pull request #42 from feature/import",
+            "- feat(cli): add import wizard\n- fix(parser): handle CSV rows",
+        )],
+        vec!["src/import.rs".into(), "src/parser.rs".into()],
+    );
+    let technical =
+        "### Features\n\n* add import wizard\n\n### Bug Fixes\n\n* handle CSV rows\n".to_string();
+    let sources = vec![context_source(
+        "technical_changelog",
+        "changelog",
+        &technical,
+    )];
+
+    let classification =
+        classify_release_context_with_deterministic(&technical, &sources, &deterministic);
+
+    assert!(classification.user_visible, "{classification:?}");
+    assert_eq!(classification.significance, "medium");
+    assert!(
+        classification
+            .deterministic_signals
+            .iter()
+            .any(|signal| signal == "conventional:feat"),
+        "{classification:?}"
+    );
+    assert!(
+        classification
+            .deterministic_signals
+            .iter()
+            .any(|signal| signal == "conventional:fix"),
+        "{classification:?}"
+    );
+}
+
+#[test]
+fn classifier_treats_perf_as_user_visible_floor_signal() {
+    let deterministic = deterministic_context(
+        vec![context_commit(
+            "perf(api): cache release lookup",
+            "Speeds up repeated release scans.",
+        )],
+        vec!["src/cache.rs".into()],
+    );
+    let technical = "### Performance\n\n* cache release lookup\n".to_string();
+    let sources = vec![context_source(
+        "technical_changelog",
+        "changelog",
+        &technical,
+    )];
+
+    let classification =
+        classify_release_context_with_deterministic(&technical, &sources, &deterministic);
+
+    assert!(classification.user_visible, "{classification:?}");
+    assert!(
+        classification
+            .deterministic_signals
+            .iter()
+            .any(|signal| signal == "conventional:perf"),
+        "{classification:?}"
+    );
+}
+
+#[test]
+fn classifier_handles_empty_context_without_panicking() {
+    let classification = classify_release_context_with_deterministic(
+        "",
+        &[],
+        &DeterministicReleaseContext::default(),
+    );
+
+    assert!(classification.user_visible, "{classification:?}");
+    assert_eq!(classification.significance, "medium");
+}
+
+fn deterministic_context(
+    commits: Vec<ContextCommit>,
+    changed_files: Vec<String>,
+) -> DeterministicReleaseContext {
+    DeterministicReleaseContext {
+        commits,
+        changed_files,
+        ..Default::default()
+    }
+}
+
+fn context_commit(subject: &str, body: &str) -> ContextCommit {
+    ContextCommit {
+        subject: subject.into(),
+        body: body.into(),
+        short_hash: "abc1234".into(),
+        conventional_type: conventional_commit_type(subject).unwrap_or("").into(),
+        breaking: body.contains("BREAKING CHANGE:"),
+    }
+}
+
 fn test_synthesis_config(model_policy: &str) -> EffectiveSynthesisConfig {
     EffectiveSynthesisConfig {
         product_name: "Demo".into(),

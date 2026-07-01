@@ -29,24 +29,26 @@ pub(crate) fn classify_release_context_with_deterministic(
 
     for commit in &relevant_commits {
         let commit_text = format!("{}\n{}", commit.subject, commit.body).to_ascii_lowercase();
-        match commit.conventional_type.as_str() {
-            "feat" | "fix" | "perf" => {
-                user_visible = true;
-                categories.insert("user-visible");
-                deterministic_signals.insert(format!("conventional:{}", commit.conventional_type));
+        for commit_type in commit_conventional_types(commit) {
+            match commit_type.as_str() {
+                "feat" | "fix" | "perf" => {
+                    user_visible = true;
+                    categories.insert("user-visible");
+                    deterministic_signals.insert(format!("conventional:{commit_type}"));
+                }
+                "docs" => {
+                    docs_count += 1;
+                    low_value_count += 1;
+                    categories.insert("docs-only");
+                    deterministic_signals.insert("conventional:docs".to_string());
+                }
+                "chore" | "ci" | "build" | "test" | "refactor" => {
+                    low_value_count += 1;
+                    categories.insert("chore-only");
+                    deterministic_signals.insert(format!("conventional:{commit_type}"));
+                }
+                _ => {}
             }
-            "docs" => {
-                docs_count += 1;
-                low_value_count += 1;
-                categories.insert("docs-only");
-                deterministic_signals.insert("conventional:docs".to_string());
-            }
-            "chore" | "ci" | "build" | "test" | "refactor" => {
-                low_value_count += 1;
-                categories.insert("chore-only");
-                deterministic_signals.insert(format!("conventional:{}", commit.conventional_type));
-            }
-            _ => {}
         }
         if commit.breaking {
             breaking = true;
@@ -451,6 +453,19 @@ pub(crate) fn push_unique_category(categories: &mut Vec<String>, category: &str)
     }
 }
 
+pub(crate) fn commit_conventional_types(commit: &ContextCommit) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
+    if !commit.conventional_type.trim().is_empty() {
+        types.insert(commit.conventional_type.clone());
+    }
+    for line in commit.body.lines() {
+        if let Some(commit_type) = conventional_commit_type(normalized_commit_line(line)) {
+            types.insert(commit_type.to_string());
+        }
+    }
+    types
+}
+
 pub(crate) fn release_relevant_commits<'a>(
     technical: &str,
     deterministic: &'a DeterministicReleaseContext,
@@ -467,10 +482,31 @@ pub(crate) fn release_relevant_commits<'a>(
 }
 
 pub(crate) fn commit_matches_release_text(commit: &ContextCommit, lower_technical: &str) -> bool {
-    let subject = commit.subject.to_ascii_lowercase();
-    lower_technical.contains(&subject)
-        || commit_summary(&subject)
-            .is_some_and(|summary| !summary.is_empty() && lower_technical.contains(summary))
+    commit_candidate_lines(commit).into_iter().any(|line| {
+        let line = line.to_ascii_lowercase();
+        lower_technical.contains(&line)
+            || commit_summary(&line)
+                .is_some_and(|summary| !summary.is_empty() && lower_technical.contains(summary))
+    })
+}
+
+pub(crate) fn commit_candidate_lines(commit: &ContextCommit) -> Vec<&str> {
+    let mut lines = vec![commit.subject.as_str()];
+    lines.extend(
+        commit
+            .body
+            .lines()
+            .map(normalized_commit_line)
+            .filter(|line| conventional_commit_type(line).is_some()),
+    );
+    lines
+}
+
+pub(crate) fn normalized_commit_line(line: &str) -> &str {
+    line.trim()
+        .trim_start_matches("- ")
+        .trim_start_matches("* ")
+        .trim()
 }
 
 pub(crate) fn commit_summary(subject: &str) -> Option<&str> {
