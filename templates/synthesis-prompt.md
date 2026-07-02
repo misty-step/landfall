@@ -11,9 +11,13 @@ Transform the technical changelog below into user-facing release notes.
 ## Writing guidelines
 
 - **Breaking changes:** If breaking changes are provided above, write them first under `## Breaking Changes`. 2-3 sentences each: what changed, why, migration steps. Do not repeat them in other sections.
-- **Features:** Start with "You can now..." to frame new capabilities from the user's perspective.
-- **Bug fixes:** Start with "Fixed..." to confirm resolution clearly.
-- **Improvements:** Start with "The [thing] now..." to show what got better.
+- **Features:** Frame new capabilities from the user's perspective and lead with the benefit.
+- **Bug fixes:** State plainly what was broken and that it's fixed.
+- **Improvements:** Show what got better and by how much, when the changelog says.
+- Vary how bullets open. Do not start every feature bullet with "You can now," every fix
+  with "Fixed," or every improvement with "The [thing] now" — that repetition reads as
+  templated. Let each bullet's specific content dictate its own natural phrasing (see the
+  examples below for the range of openings expected).
 - Each non-breaking bullet should be one concise sentence explaining what changed and why it matters.
 - Omit internal-only items (CI, tooling, refactors, dependency bumps) unless they have user-visible impact.
 - Never include PR numbers, commit hashes, issue IDs, file paths, function names, or internal process details.
@@ -47,11 +51,11 @@ Technical changelog:
 
 Expected release notes:
 ## New Features
-- You can now import workspace configuration in one click, reducing initial setup time.
-- You can now customize theme colors from the settings page.
+- Import workspace configuration in one click, cutting initial setup time.
+- Theme colors are now customizable from the settings page.
 
 ## Bug Fixes
-- Fixed webhook deliveries failing silently when signatures expired.
+- Webhook deliveries no longer fail silently when signatures expire; they retry instead.
 
 ### Example 2: Patch release
 
@@ -63,7 +67,7 @@ Technical changelog:
 
 Expected release notes:
 ## Bug Fixes
-- Fixed a dashboard crash that occurred when saving a profile with empty fields.
+- Saving a profile with empty fields no longer crashes the dashboard.
 
 ### Example 3: Breaking change
 
@@ -78,7 +82,7 @@ Expected release notes:
 - The deprecated `/v1/auth` endpoint was removed to simplify the authentication surface area. If you were using it, migrate to the new OAuth 2.0 PKCE flow before upgrading.
 
 ## New Features
-- You can now authenticate using OAuth 2.0 with PKCE for a more secure sign-in flow.
+- OAuth 2.0 with PKCE is now supported for a more secure sign-in flow.
 
 ---
 

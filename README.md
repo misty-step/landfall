@@ -851,7 +851,7 @@ Synthesized `## What's New` section (prepended):
 ## What's New
 
 ## New Features
-- You can now import workspace configuration in one command, reducing setup time.
+- Import workspace configuration in one command, cutting setup time.
 
 ## Bug Fixes
 - Webhook deliveries now retry more reliably when signatures expire.
