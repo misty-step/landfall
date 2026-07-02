@@ -1,8 +1,8 @@
 use super::{
     ContextCommit, DeterministicReleaseContext, LandmarkManifest, Result, RunArgs,
     RunArtifactRecord, RunPublicationRecord, RunReleaseContext, RunVersionDecision,
-    classify_release_context_with_deterministic, context_source, conventional_commit_type,
-    is_breaking_commit, sha256_hex, trimmed_option,
+    classify_release_context_with_deterministic, context_changed_files, context_source,
+    conventional_commit_type, is_breaking_commit, sha256_hex, trimmed_option,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -186,6 +186,7 @@ pub(super) fn plan(input: PlanInput<'_>) -> ReleaseKit {
                 short_hash: commit.short_hash.clone(),
             })
             .collect(),
+        changed_files: context_changed_files(&args.repo_root, &release.version),
         ..DeterministicReleaseContext::default()
     };
     let release_classification = classify_release_context_with_deterministic(
