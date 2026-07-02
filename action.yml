@@ -186,7 +186,7 @@ runs:
         download "${base_url}/checksums.txt" "${checksums_path}"
         download "${base_url}/${asset_name}" "${bin_path}"
 
-        expected="$(grep -F " ${asset_name}" "${checksums_path}" | awk '{print $1}')"
+        expected="$(grep -F " ${asset_name}" "${checksums_path}" | awk '{print $1}' || true)"
         if [ -z "${expected}" ]; then
           echo "::error::checksums.txt for ${release_tag} has no entry for ${asset_name}"
           exit 1
