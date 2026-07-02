@@ -1,6 +1,6 @@
 # Add real --help text to every CLI subcommand and flag
 
-Priority: P2 · Status: ready · Estimate: M
+Priority: P2 · Status: done · Estimate: M
 
 ## Goal
 `landmark --help` and every subcommand's `--help` currently render blank
@@ -10,7 +10,7 @@ matching the agent-native-contract bar the rest of the repo already holds
 itself to.
 
 ## Oracle
-- [ ] `cargo run --locked -- --help` shows a non-empty one-line description for
+- [x] `cargo run --locked -- --help` shows a non-empty one-line description for
       every subcommand listed under `Commands:` (currently: `describe`, `init`,
       `doctor`, `manifest-defaults`, `healthcheck`, `preflight-tags`,
       `fetch-release-body`, `extract-prs`, `synthesize`, `release-policy`,
@@ -20,16 +20,37 @@ itself to.
       `check-version-sync`, `check-action-contract`, `replay-action`,
       `backfill`, `setup`, `fleet`, `prepare-self-release`,
       `publish-self-release`).
-- [ ] `cargo run --locked -- run --help`, `synthesize --help`, `backfill
+- [x] `cargo run --locked -- run --help`, `synthesize --help`, `backfill
       --help`, `setup --help`, `fleet --help`, and `prepare-self-release
       --help` (the highest-traffic subcommands per README/agent-integration
       guide) show a non-empty description for every flag, not just its type
       and default.
-- [ ] Descriptions are accurate against current behavior (source from README/
+- [x] Descriptions are accurate against current behavior (source from README/
       `docs/agent-integration.md`/existing doc comments elsewhere in the repo
       where they already explain a flag; do not invent new semantics).
-- [ ] `bin/gate` passes (including `cargo clippy -D warnings`, which will
+- [x] `bin/gate` passes (including `cargo clippy -D warnings`, which will
       catch any malformed doc comments).
+
+## Evidence
+- All 28 top-level subcommand variants, plus the 2 nested `release-policy`
+  and 3 nested `fleet` subcommands, now have `///` doc comments.
+- Flag-level docs added for all 6 named commands (`run`, `synthesize`,
+  `backfill`, `setup`, `fleet` — all 3 fleet subcommands — and
+  `prepare-self-release`), plus the global `--error-format` flag that
+  appears on every subcommand's help.
+- Descriptions were written from direct knowledge of the code paths each
+  flag feeds (verified against `run.rs`, `synthesis.rs`, `self_release.rs`,
+  `setup_fleet/*.rs` this session), not invented — e.g. `--publish-release-body`
+  is documented as "provider=github only" because `run_pipeline` gates it
+  that way, `--confirm-release-body` on backfill is documented as required
+  "alongside mode=release-body" matching the actual guard in `backfill`.
+- Bonus (not in the original oracle): `landmark describe --json` derives its
+  `inputs[].help` field from the same clap doc comments, so the agent-native
+  self-description document is now populated for these commands/flags too —
+  verified live via `describe --json | jq`.
+- `cargo run --locked -- --help` and all 6 named `--help` invocations spot-
+  checked for zero blank descriptions; `cargo clippy --locked --all-targets
+  -- -D warnings` confirmed no malformed doc comments.
 
 ## Notes
 Verified live: `cargo run --locked -q -- --help` prints every subcommand with

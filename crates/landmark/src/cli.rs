@@ -4,6 +4,7 @@ use crate::*;
 #[command(name = "landmark", version)]
 #[command(about = "Rust runtime for the Landmark release action")]
 pub(crate) struct Cli {
+    /// Error output format: text or json (json emits a stable code/stage/retryable/user_action envelope)
     #[arg(long = "error-format", global = true, default_value = "text")]
     pub(crate) error_format: String,
     #[command(subcommand)]
@@ -12,33 +13,61 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Commands {
+    /// Print the agent-native self-description document (commands, schemas, examples, failure taxonomy)
     Describe(DescribeArgs),
+    /// Infer a starter .landmark.yml manifest from repo signals
     Init(InitArgs),
+    /// Validate manifest enums and repo signals before a release run
     Doctor(DoctorArgs),
+    /// Resolve manifest-derived defaults for GitHub Action inputs
     ManifestDefaults(ManifestDefaultsArgs),
+    /// Probe an LLM API key and model before synthesis runs
     Healthcheck(HealthcheckArgs),
+    /// Validate git tag history integrity before semantic-release runs
     PreflightTags,
+    /// Download an existing GitHub Release body as a changelog source
     FetchReleaseBody(FetchReleaseBodyArgs),
+    /// Build a changelog from merged PR titles since the previous release
     ExtractPrs(ExtractPrsArgs),
+    /// Generate user-facing release notes from a technical changelog
     Synthesize(Box<SynthesizeArgs>),
+    /// Evaluate synthesis publication and summary policy
     ReleasePolicy(ReleasePolicyArgs),
+    /// Prepend synthesized notes onto an existing GitHub Release body
     UpdateRelease(UpdateReleaseArgs),
+    /// Write release notes to markdown, plaintext, HTML, and JSON outputs
     WriteArtifacts(WriteArtifactsArgs),
+    /// Update an RSS release feed file with the latest release notes
     UpdateFeed(UpdateFeedArgs),
+    /// POST release notes to a configured webhook endpoint
     NotifyWebhook(NotifyWebhookArgs),
+    /// POST release notes to a configured Slack webhook
     NotifySlack(NotifySlackArgs),
+    /// Compute a release decision and write technical/public release artifacts
     Run(RunArgs),
+    /// Print the floating major-version tag for a release tag (e.g. v1)
     FloatingTag(FloatingTagArgs),
+    /// Close synthesis-failure issues once synthesis has recovered
     CloseResolvedFailures(FailureLifecycleArgs),
+    /// Open a GitHub issue reporting a synthesis failure
     ReportSynthesisFailure(ReportFailureArgs),
+    /// Write a version into package.json and Cargo.toml
     UpdateVersionMetadata(UpdateVersionArgs),
+    /// Fail if package/Cargo metadata versions drift from the latest tag
     CheckVersionSync(CheckVersionArgs),
+    /// Validate that action.yml, README, and schemas stay in sync
     CheckActionContract(CheckActionContractArgs),
+    /// Run the disposable-repo replay scenarios that prove release behavior
     ReplayAction(ReplayArgs),
+    /// Plan or write historical release artifacts for tags that predate Landmark
     Backfill(BackfillArgs),
+    /// Diagnose release tooling and generate candidate Landmark workflows
     Setup(SetupArgs),
+    /// Scan, plan, and open adoption PRs across many repositories
     Fleet(FleetArgs),
+    /// Prepare Landmark's own self-release branch and pull request
     PrepareSelfRelease(PrepareSelfReleaseArgs),
+    /// Publish Landmark's own GitHub Release once the release PR has landed
     PublishSelfRelease(PublishSelfReleaseArgs),
 }
 
@@ -116,46 +145,67 @@ pub(crate) struct ExtractPrsArgs {
 
 #[derive(Args)]
 pub(crate) struct SynthesizeArgs {
+    /// API key for the LLM provider
     #[arg(long = "api-key")]
     pub(crate) api_key: String,
+    /// Primary model ID to try first
     #[arg(long, default_value = "")]
     pub(crate) model: String,
+    /// Model policy: cheap, balanced, rich, or off
     #[arg(long = "model-policy", default_value = "")]
     pub(crate) model_policy: String,
+    /// Chat completions endpoint URL (OpenAI-compatible)
     #[arg(long = "api-url")]
     pub(crate) api_url: String,
+    /// Comma-separated fallback model IDs tried in order if the primary fails
     #[arg(long = "fallback-models", default_value = "")]
     pub(crate) fallback_models: String,
+    /// Product name injected into the synthesis prompt
     #[arg(long = "product-name", default_value = "")]
     pub(crate) product_name: String,
+    /// One-line product description injected into the synthesis prompt
     #[arg(long = "product-description", default_value = "")]
     pub(crate) product_description: String,
+    /// Tone and style guidance injected into the synthesis prompt
     #[arg(long = "voice-guide", default_value = "")]
     pub(crate) voice_guide: String,
+    /// Prompt audience variant: general, developer, end-user, or enterprise
     #[arg(long)]
     pub(crate) audience: Option<String>,
+    /// Technical source for synthesis: auto, changelog, release-body, or prs
     #[arg(long = "changelog-source")]
     pub(crate) changelog_source: Option<String>,
+    /// Release version being synthesized
     #[arg(long)]
     pub(crate) version: String,
+    /// Path to CHANGELOG.md to read as the technical source
     #[arg(long = "changelog-file")]
     pub(crate) changelog_file: PathBuf,
+    /// Path to a fetched GitHub Release body to use as the technical source
     #[arg(long = "release-body-file", default_value = ".")]
     pub(crate) release_body_file: PathBuf,
+    /// Path to an extracted PR changelog to use as the technical source
     #[arg(long = "pr-changelog-file", default_value = ".")]
     pub(crate) pr_changelog_file: PathBuf,
+    /// Path to a custom synthesis prompt template overriding the audience default
     #[arg(long = "prompt-template", default_value = ".")]
     pub(crate) prompt_template: PathBuf,
+    /// Path to write the synthesis quality verdict (valid/degraded/skipped)
     #[arg(long = "quality-file")]
     pub(crate) quality_file: PathBuf,
+    /// Path to write the per-model attempt log as JSON
     #[arg(long = "attempts-file", default_value = ".")]
     pub(crate) attempts_file: PathBuf,
+    /// Directory containing the built-in audience prompt templates
     #[arg(long = "templates-dir", default_value = "templates/prompts")]
     pub(crate) templates_dir: PathBuf,
+    /// Path to the repository to read manifest and context from
     #[arg(long = "repo-root", default_value = ".")]
     pub(crate) repo_root: PathBuf,
+    /// Estimate token cost and skip decision without calling the LLM
     #[arg(long = "dry-run-cost")]
     pub(crate) dry_run_cost: bool,
+    /// Path to write the synthesis context metadata as JSON
     #[arg(long = "context-metadata-file", default_value = ".")]
     pub(crate) context_metadata_file: PathBuf,
 }
@@ -168,7 +218,9 @@ pub(crate) struct ReleasePolicyArgs {
 
 #[derive(Subcommand)]
 pub(crate) enum ReleasePolicyCommand {
+    /// Decide whether synthesis failures should block release-body publication
     Publication(PublicationArgs),
+    /// Summarize synthesis, publication, and notification outcomes as status JSON
     Summary(Box<SummaryArgs>),
 }
 
@@ -320,53 +372,73 @@ pub(crate) struct NotifySlackArgs {
 
 #[derive(Args)]
 pub(crate) struct RunArgs {
+    /// Release provider: local (no GitHub calls) or github (can mutate the release body)
     #[arg(long = "provider", default_value = "local")]
     pub(crate) provider: String,
+    /// Path to the repository to analyze
     #[arg(long = "repo-root", default_value = ".")]
     pub(crate) repo_root: PathBuf,
+    /// owner/repo; inferred from repo_root's directory name when omitted
     #[arg(long = "repository", default_value = "")]
     pub(crate) repository: String,
+    /// Explicit release tag to use instead of computing one from commits
     #[arg(long = "release-tag", default_value = "")]
     pub(crate) release_tag: String,
+    /// Previous release tag to diff against; inferred from the latest matching tag when omitted
     #[arg(long = "previous-tag", default_value = "")]
     pub(crate) previous_tag: String,
+    /// GitHub token for provider=github; required with --publish-release-body
     #[arg(long = "github-token", default_value = "")]
     pub(crate) github_token: String,
+    /// GitHub API base URL (override for GitHub Enterprise)
     #[arg(long = "api-base-url", default_value = "https://api.github.com")]
     pub(crate) api_base_url: String,
+    /// GitHub server URL used to build release links
     #[arg(long = "server-url", default_value = "")]
     pub(crate) server_url: String,
+    /// Mutate the existing GitHub Release body with generated notes (provider=github only)
     #[arg(long = "publish-release-body")]
     pub(crate) publish_release_body: bool,
+    /// Compute the release decision and print evidence without writing any files
     #[arg(long = "dry-run")]
     pub(crate) dry_run: bool,
+    /// Use pre-written release notes instead of rendering them from commits
     #[arg(long = "notes-file", default_value = "")]
     pub(crate) notes_file: String,
+    /// Directory for the evidence and release-kit JSON artifacts
     #[arg(long = "output-dir", default_value = ".landmark/run")]
     pub(crate) output_dir: PathBuf,
+    /// Path to write the internal technical changelog
     #[arg(
         long = "technical-changelog-file",
         default_value = ".landmark/run/technical-changelog.md"
     )]
     pub(crate) technical_changelog_file: String,
+    /// Path to write the run-evidence.v1 JSON packet
     #[arg(long = "evidence-file", default_value = ".landmark/run/evidence.json")]
     pub(crate) evidence_file: String,
+    /// Markdown release notes output path; use {version} as a placeholder
     #[arg(long = "output-file", default_value = "docs/releases/{version}.md")]
     pub(crate) output_file: String,
+    /// Plaintext release notes output path; use {version} as a placeholder
     #[arg(
         long = "output-text-file",
         default_value = "docs/releases/{version}.txt"
     )]
     pub(crate) output_text_file: String,
+    /// HTML release notes output path; use {version} as a placeholder
     #[arg(
         long = "output-html-file",
         default_value = "docs/releases/{version}.html"
     )]
     pub(crate) output_html_file: String,
+    /// Path to append a structured release-entry JSON record
     #[arg(long = "output-json", default_value = "docs/releases/releases.json")]
     pub(crate) output_json: String,
+    /// Path to an RSS feed file to update with this release
     #[arg(long = "rss-feed-file", default_value = "docs/releases/feed.xml")]
     pub(crate) rss_feed_file: String,
+    /// Maximum number of entries to retain in the RSS feed
     #[arg(long = "rss-max-entries", default_value_t = 50)]
     pub(crate) rss_max_entries: usize,
 }
@@ -445,14 +517,19 @@ pub(crate) struct ReplayArgs {
 
 #[derive(Args)]
 pub(crate) struct BackfillArgs {
+    /// Path to the repository to analyze
     #[arg(long = "repo-root", default_value = ".")]
     pub(crate) repo_root: PathBuf,
+    /// Earliest tag to backfill from; backfills all matching tags when omitted
     #[arg(long, default_value = "")]
     pub(crate) since: String,
+    /// Backfill mode: artifacts-only (safe) or release-body (mutates GitHub Releases)
     #[arg(long, default_value = "artifacts-only")]
     pub(crate) mode: String,
+    /// Preview the backfill plan without writing artifacts or releases
     #[arg(long = "dry-run")]
     pub(crate) dry_run: bool,
+    /// owner/repo; required for mode=release-body
     #[arg(long = "repository", default_value = "")]
     pub(crate) repository: String,
     #[arg(
@@ -461,30 +538,40 @@ pub(crate) struct BackfillArgs {
         help = "GitHub token; defaults to GITHUB_TOKEN when omitted"
     )]
     pub(crate) github_token: String,
+    /// GitHub API base URL (override for GitHub Enterprise)
     #[arg(long = "api-base-url", default_value = "https://api.github.com")]
     pub(crate) api_base_url: String,
+    /// Required alongside mode=release-body to confirm mutating existing releases
     #[arg(long = "confirm-release-body")]
     pub(crate) confirm_release_body: bool,
+    /// Maximum number of tags to backfill; 0 means no limit
     #[arg(long = "max-tags", default_value_t = 0)]
     pub(crate) max_tags: usize,
+    /// Markdown release notes output path; use {version} as a placeholder
     #[arg(long = "output-file", default_value = "docs/releases/{version}.md")]
     pub(crate) output_file: String,
+    /// Plaintext release notes output path; use {version} as a placeholder
     #[arg(
         long = "output-text-file",
         default_value = "docs/releases/{version}.txt"
     )]
     pub(crate) output_text_file: String,
+    /// HTML release notes output path; use {version} as a placeholder
     #[arg(
         long = "output-html-file",
         default_value = "docs/releases/{version}.html"
     )]
     pub(crate) output_html_file: String,
+    /// Path to append structured release-entry JSON records
     #[arg(long = "output-json", default_value = "docs/releases/releases.json")]
     pub(crate) output_json: String,
+    /// Path to an RSS feed file to update with backfilled entries
     #[arg(long = "rss-feed-file", default_value = "docs/releases/feed.xml")]
     pub(crate) rss_feed_file: String,
+    /// Maximum number of entries to retain in the RSS feed
     #[arg(long = "rss-max-entries", default_value_t = 50)]
     pub(crate) rss_max_entries: usize,
+    /// Path to the backfill progress manifest, used to resume interrupted runs
     #[arg(
         long = "resume-file",
         default_value = ".landmark/backfill-manifest.json"
@@ -494,10 +581,13 @@ pub(crate) struct BackfillArgs {
 
 #[derive(Args)]
 pub(crate) struct SetupArgs {
+    /// Path to the repository to diagnose
     #[arg(long = "repo-root", default_value = ".")]
     pub(crate) repo_root: PathBuf,
+    /// Directory to write generated workflow candidates; skips writing when empty
     #[arg(long = "output-dir", default_value = "")]
     pub(crate) output_dir: String,
+    /// Print the diagnosis and recommendation without writing workflow files
     #[arg(long = "dry-run")]
     pub(crate) dry_run: bool,
 }
@@ -510,8 +600,11 @@ pub(crate) struct FleetArgs {
 
 #[derive(Subcommand)]
 pub(crate) enum FleetCommand {
+    /// Scan GitHub repositories for release tooling and Landmark adoption signals
     Scan(FleetScanArgs),
+    /// Turn a fleet scan into a ranked, per-repo adoption plan
     Plan(FleetPlanArgs),
+    /// Render and optionally open adoption PRs from a fleet plan
     OpenPrs(FleetOpenPrsArgs),
 }
 
@@ -520,62 +613,84 @@ pub(crate) enum FleetCommand {
     after_help = "Token note: if --github-token is omitted, Landmark reads GITHUB_TOKEN from the environment. Prefer the environment to avoid token-bearing argv."
 )]
 pub(crate) struct FleetScanArgs {
+    /// GitHub user or organization to scan; repeatable
     #[arg(long)]
     pub(crate) owner: Vec<String>,
+    /// Path to write the fleet scan JSON
     #[arg(long, default_value = ".landmark/fleet.json")]
     pub(crate) output: PathBuf,
+    /// Maximum number of repositories to scan; 0 means no limit
     #[arg(long = "max-repos", default_value_t = 0)]
     pub(crate) max_repos: usize,
+    /// Skip archived and inactive repositories
     #[arg(long = "active-only")]
     pub(crate) active_only: bool,
+    /// Number of repositories to scan concurrently
     #[arg(long = "concurrency", default_value_t = 4)]
     pub(crate) concurrency: usize,
+    /// Fetch branch-protection and workflow content, not just repo metadata
     #[arg(long = "deep-checks")]
     pub(crate) deep_checks: bool,
+    /// GitHub API base URL (override for GitHub Enterprise)
     #[arg(long = "api-base-url", default_value = "https://api.github.com")]
     pub(crate) api_base_url: String,
+    /// GitHub token; defaults to GITHUB_TOKEN when omitted
     #[arg(long = "github-token", default_value = "")]
     pub(crate) github_token: String,
     #[arg(long = "fixture", hide = true, default_value = "")]
     pub(crate) fixture: String,
+    /// Output format: text or json
     #[arg(long = "format", default_value = "text")]
     pub(crate) format: String,
 }
 
 #[derive(Args)]
 pub(crate) struct FleetPlanArgs {
+    /// Path to a fleet scan JSON produced by fleet scan
     #[arg(long, default_value = ".landmark/fleet.json")]
     pub(crate) input: PathBuf,
+    /// Directory to write the per-repo adoption plan
     #[arg(long = "output-dir", default_value = ".landmark/fleet-plan")]
     pub(crate) output_dir: PathBuf,
+    /// Output format: text or json
     #[arg(long = "format", default_value = "text")]
     pub(crate) format: String,
 }
 
 #[derive(Args)]
 pub(crate) struct FleetOpenPrsArgs {
+    /// Directory containing the fleet adoption plan
     #[arg(long = "plan-dir", default_value = ".landmark/fleet-plan")]
     pub(crate) plan_dir: PathBuf,
+    /// Directory to write rendered PR bodies and diffs
     #[arg(long = "output-dir", default_value = ".landmark/fleet-plan/prs")]
     pub(crate) output_dir: PathBuf,
+    /// Render PR content without pushing branches or opening PRs
     #[arg(long = "dry-run")]
     pub(crate) dry_run: bool,
+    /// Required alongside a non-dry-run to confirm pushing to remote repositories
     #[arg(long = "confirm-remote")]
     pub(crate) confirm_remote: bool,
+    /// Maximum number of PRs to open; 0 means no limit
     #[arg(long = "max-prs", default_value_t = 0)]
     pub(crate) max_prs: usize,
+    /// Output format: text or json
     #[arg(long = "format", default_value = "text")]
     pub(crate) format: String,
 }
 
 #[derive(Args)]
 pub(crate) struct PrepareSelfReleaseArgs {
+    /// Path to the repository to prepare a release for
     #[arg(long = "repo-root", default_value = ".")]
     pub(crate) repo_root: PathBuf,
+    /// owner/repo for the release
     #[arg(long, default_value = "misty-step/landmark")]
     pub(crate) repository: String,
+    /// Branch name for the self-release pull request
     #[arg(long = "release-branch", default_value = "landmark/self-release")]
     pub(crate) release_branch: String,
+    /// Path to a GITHUB_OUTPUT file to append step outputs to
     #[arg(long = "github-output", default_value = "")]
     pub(crate) github_output: String,
 }
