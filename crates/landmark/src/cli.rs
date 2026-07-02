@@ -141,6 +141,9 @@ pub(crate) struct ExtractPrsArgs {
     pub(crate) output_file: PathBuf,
     #[arg(long = "api-base-url", default_value = "https://api.github.com")]
     pub(crate) api_base_url: String,
+    /// Path to the local git checkout used to scope PRs to the release's tag range
+    #[arg(long = "repo-root", default_value = ".")]
+    pub(crate) repo_root: PathBuf,
 }
 
 #[derive(Args)]

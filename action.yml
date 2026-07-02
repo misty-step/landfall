@@ -407,6 +407,7 @@ runs:
             --repository "${GITHUB_REPOSITORY}" \
             --release-tag "${release_tag}" \
             --output-file "${target_file}" \
+            --repo-root "${GITHUB_WORKSPACE}" \
             > /dev/null \
             2> "${RUNNER_TEMP}/landmark-extract-prs.log"
         }
