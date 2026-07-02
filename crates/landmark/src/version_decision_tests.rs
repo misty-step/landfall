@@ -162,3 +162,47 @@ fn bootstrap_range_with_real_signal_still_bumps() {
     assert_eq!(decision.bump, Some(VersionBump::Minor));
     assert_eq!(decision.unknown_commits.len(), 1);
 }
+
+// The Threshold incident (backlog 002): a repo/product rename range computed
+// `patch` under the old engine because it defaulted anything unrecognized to
+// patch. These pin the fixed behavior so it can't regress silently.
+
+#[test]
+fn conventional_rename_commit_does_not_bump() {
+    // `refactor:` is a recognized conventional type with no release intent.
+    // A rename range described this way must resolve to no bump, not patch.
+    let decision = decide_version(&[commit("a", "refactor: rename Foo to Bar", "")]);
+    assert_eq!(decision.bump, None);
+    assert!(decision.unknown_commits.is_empty());
+}
+
+#[test]
+fn freeform_rename_commit_is_named_unknown_not_silently_patched() {
+    // No conventional-commit prefix at all -- the exact shape of a pre-
+    // convention rename/rebrand commit. Must be named unknown, never patch.
+    let decision = decide_version(&[commit("a", "Rename Foo to Bar across the repo", "")]);
+    assert_eq!(decision.bump, None);
+    assert_eq!(decision.unknown_commits.len(), 1);
+    assert_eq!(decision.unknown_commits[0].id, "a");
+}
+
+#[test]
+fn rename_marked_breaking_bumps_major() {
+    // When a rename genuinely is product-breaking and is marked as such, the
+    // engine must still recognize it -- the fix is refusing to *guess*, not
+    // refusing to *recognize an explicit signal*.
+    let decision = decide_version(&[commit("a", "feat(api)!: rename public output field", "")]);
+    assert_eq!(decision.bump, Some(VersionBump::Major));
+}
+
+#[test]
+fn rename_commit_alongside_real_signal_never_blocks_the_release() {
+    let decision = decide_version(&[
+        commit("a", "Rename internal module", ""),
+        commit("b", "fix(cli): correct exit code", ""),
+    ]);
+    assert_eq!(decision.bump, Some(VersionBump::Patch));
+    assert_eq!(decision.decisive.unwrap().id, "b");
+    assert_eq!(decision.unknown_commits.len(), 1);
+    assert_eq!(decision.unknown_commits[0].id, "a");
+}
