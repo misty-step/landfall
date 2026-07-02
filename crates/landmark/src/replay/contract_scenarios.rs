@@ -158,7 +158,13 @@ pub(crate) fn action_subcommand_replay_coverage() -> BTreeMap<&'static str, Vec<
         ("healthcheck", vec!["http_resilience_policy"]),
         ("preflight-tags", vec!["action_side_effect_coverage"]),
         ("fetch-release-body", vec!["consumer_full_mode_success"]),
-        ("extract-prs", vec!["consumer_full_mode_success"]),
+        (
+            "extract-prs",
+            vec![
+                "consumer_full_mode_success",
+                "extract_prs_scoped_to_release_range",
+            ],
+        ),
         (
             "synthesize",
             vec!["synthesis_cost_policy", "consumer_synthesis_only_success"],

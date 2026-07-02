@@ -75,9 +75,17 @@ pub(crate) fn fetch_release_body(args: FetchReleaseBodyArgs) -> Result<()> {
 
 pub(crate) fn extract_prs(args: ExtractPrsArgs) -> Result<()> {
     let provider = GitHubProvider::required(&args.api_base_url, &args.github_token);
+    let (previous_tag, target_tag) = context_git_range(&args.repo_root, &args.release_tag);
+    let since = if previous_tag.is_empty() {
+        None
+    } else {
+        git_commit_date(&args.repo_root, &previous_tag)
+    };
+    let until = git_commit_date(&args.repo_root, &target_tag);
     let prs = provider.closed_pull_requests(&args.repository)?;
+    let scoped = filter_prs_by_range(&prs, since, until);
     let mut rendered = String::new();
-    for pr in prs.iter().filter(|pr| !pr["merged_at"].is_null()) {
+    for pr in &scoped {
         let number = pr["number"].as_i64().unwrap_or_default();
         let title = pr["title"].as_str().unwrap_or("Untitled");
         let user = pr["user"]["login"].as_str().unwrap_or("unknown");

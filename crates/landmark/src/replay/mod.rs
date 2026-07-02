@@ -164,6 +164,10 @@ pub(crate) fn scenario_map() -> BTreeMap<String, Scenario> {
         scenario_synthesis_cost_policy,
     );
     map.insert(
+        "extract_prs_scoped_to_release_range".to_string(),
+        scenario_extract_prs_scoped_to_release_range,
+    );
+    map.insert(
         "backfill_release_history".to_string(),
         scenario_backfill_release_history,
     );
@@ -224,6 +228,7 @@ pub(crate) fn canonical_scenarios() -> Vec<&'static str> {
         "consumer_synthesis_only_success",
         "self_release_pr_path",
         "synthesis_cost_policy",
+        "extract_prs_scoped_to_release_range",
         "backfill_release_history",
         "publication_degraded_optional",
         "publication_degraded_required",

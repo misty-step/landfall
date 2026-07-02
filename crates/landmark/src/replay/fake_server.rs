@@ -36,6 +36,9 @@ pub(crate) fn start_fake_server(mut state: FakeState) -> Result<FakeServer> {
                         json_response(200, json!({"choices": [{"message": {"content": notes}}]}))
                     }
                 }
+                (Method::Get, url) if url.contains("/pulls") => {
+                    json_response(200, Value::Array(state.pull_requests.clone()))
+                }
                 (Method::Get, url) if url.contains("/releases/tags/") => {
                     let tag = url.rsplit("/releases/tags/").next().unwrap();
                     let tag = urlencoding::decode(tag).unwrap_or_default().to_string();

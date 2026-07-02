@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use hmac::{Hmac, Mac};
 use pulldown_cmark::{Options, Parser as MarkdownParser, html};
@@ -24,7 +24,10 @@ mod classification_tests;
 mod cli;
 mod describe;
 mod errors;
+#[cfg(test)]
+mod extract_prs_tests;
 mod manifest;
+mod pr_range;
 mod providers;
 mod release_classification;
 mod release_kit;
@@ -47,6 +50,7 @@ pub(crate) use cli::*;
 pub(crate) use describe::*;
 pub(crate) use errors::*;
 pub(crate) use manifest::*;
+pub(crate) use pr_range::*;
 pub(crate) use providers::*;
 pub(crate) use release_classification::*;
 pub(crate) use release_ops::*;
